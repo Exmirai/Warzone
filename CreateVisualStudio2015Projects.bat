@@ -13,6 +13,6 @@ if not defined FOUND (
 )
 if not exist build\nul (mkdir build)
 pushd build
-cmake -G "Visual Studio 14" -D CMAKE_INSTALL_PREFIX=../install ..
+cmake -G "Visual Studio 16" -D ARCH_BITS=32 CMAKE_INSTALL_PREFIX=../install ..
 popd
 pause
