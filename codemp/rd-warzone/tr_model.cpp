@@ -480,7 +480,7 @@ static qboolean R_LoadAssImp(model_t * mod, int lod, void *buffer, const char *m
 		}
 	}
 
-	image_t		*textureAliasMap = R_BakeTextures(textureNames, numTextureNames, modName, IMGTYPE_COLORALPHA, IMGFLAG_NONE);
+	image_t		*textureAliasMap = R_BakeTextures(textureNames, numTextureNames, modName, IMGTYPE_COLORALPHA, IMGFLAG_NONE, qfalse);
 	shader_t	*textureAliasMapShader = R_FindShader(modName, lightmapsNone, stylesDefault, qtrue);
 
 	// swap all the surfaces
@@ -1495,11 +1495,13 @@ qhandle_t RE_RegisterModel( const char *name ) {
 
 		if( hModel )
 		{
+#ifdef __DEVELOPER_MODE__
 			if( orgNameFailed )
 			{
 				ri->Printf( PRINT_DEVELOPER, "WARNING: %s not present, using %s instead\n",
 						name, altName );
 			}
+#endif //__DEVELOPER_MODE__
 
 			break;
 		}

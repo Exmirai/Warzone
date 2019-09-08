@@ -1,10 +1,6 @@
 ﻿#define __PROCEDURALS_IN_DEFERRED_SHADER__
 #define __SSDM_IN_DEFERRED_SHADER__
 
-#ifdef __SSDM_IN_DEFERRED_SHADER__
-	//#define TEST_PARALLAX2
-#endif //__SSDM_IN_DEFERRED_SHADER__
-
 
 #ifndef __LQ_MODE__
 
@@ -19,6 +15,49 @@
 
 #endif //__LQ_MODE__
 
+#if defined(USE_BINDLESS_TEXTURES)
+layout(std140) uniform u_bindlessTexturesBlock
+{
+uniform sampler2D					u_DiffuseMap;
+uniform sampler2D					u_LightMap;
+uniform sampler2D					u_NormalMap;
+uniform sampler2D					u_DeluxeMap;
+uniform sampler2D					u_SpecularMap;
+uniform sampler2D					u_PositionMap;
+uniform sampler2D					u_WaterPositionMap;
+uniform sampler2D					u_WaterHeightMap;
+uniform sampler2D					u_HeightMap;
+uniform sampler2D					u_GlowMap;
+uniform sampler2D					u_EnvironmentMap;
+uniform sampler2D					u_TextureMap;
+uniform sampler2D					u_LevelsMap;
+uniform samplerCube					u_CubeMap;
+uniform samplerCube					u_SkyCubeMap;
+uniform samplerCube					u_SkyCubeMapNight;
+uniform samplerCube					u_EmissiveCubeMap;
+uniform sampler2D					u_OverlayMap;
+uniform sampler2D					u_SteepMap;
+uniform sampler2D					u_SteepMap1;
+uniform sampler2D					u_SteepMap2;
+uniform sampler2D					u_SteepMap3;
+uniform sampler2D					u_WaterEdgeMap;
+uniform sampler2D					u_SplatControlMap;
+uniform sampler2D					u_SplatMap1;
+uniform sampler2D					u_SplatMap2;
+uniform sampler2D					u_SplatMap3;
+uniform sampler2D					u_RoadsControlMap;
+uniform sampler2D					u_RoadMap;
+uniform sampler2D					u_DetailMap;
+uniform sampler2D					u_ScreenImageMap;
+uniform sampler2D					u_ScreenDepthMap;
+uniform sampler2D					u_ShadowMap;
+uniform sampler2D					u_ShadowMap2;
+uniform sampler2D					u_ShadowMap3;
+uniform sampler2D					u_ShadowMap4;
+uniform sampler2D					u_ShadowMap5;
+uniform sampler2D					u_MoonMaps[4];
+};
+#else //!defined(USE_BINDLESS_TEXTURES)
 uniform sampler2D							u_DiffuseMap;		// Screen image
 uniform sampler2D							u_NormalMap;		// Flat normals
 uniform sampler2D							u_PositionMap;		// positionMap
@@ -55,6 +94,30 @@ uniform samplerCube							u_CubeMap;			// Closest cubemap
 uniform sampler2D							u_ScreenDepthMap;	// 512 depth map.
 uniform sampler2D							u_RoadMap;			// SSDM map.
 #endif //__SSDM_IN_DEFERRED_SHADER__
+#endif //defined(USE_BINDLESS_TEXTURES)
+
+
+#ifdef USE_LIGHTS_UBO
+layout(std140) uniform u_LightingBlock
+{
+	uniform int								u_lightCount;
+	uniform vec3							u_lightPositions2[MAX_DEFERRED_LIGHTS];
+	uniform float							u_lightDistances[MAX_DEFERRED_LIGHTS];
+	uniform vec3							u_lightColors[MAX_DEFERRED_LIGHTS];
+	//uniform float							u_lightConeAngles[MAX_DEFERRED_LIGHTS];
+	//uniform vec3							u_lightConeDirections[MAX_DEFERRED_LIGHTS];
+	uniform float							u_lightMaxDistance;
+};
+#else //!USE_LIGHTS_UBO
+uniform int									u_lightCount;
+uniform vec3								u_lightPositions2[MAX_DEFERRED_LIGHTS];
+uniform float								u_lightDistances[MAX_DEFERRED_LIGHTS];
+uniform vec3								u_lightColors[MAX_DEFERRED_LIGHTS];
+//uniform float								u_lightConeAngles[MAX_DEFERRED_LIGHTS];
+//uniform vec3								u_lightConeDirections[MAX_DEFERRED_LIGHTS];
+uniform float								u_lightMaxDistance;
+#endif //USE_LIGHTS_UBO
+
 
 uniform mat4								u_ModelViewProjectionMatrix;
 
@@ -68,6 +131,7 @@ uniform vec4								u_Local5;	// CONTRAST,				SATURATION,						BRIGHTNESS,						
 uniform vec4								u_Local6;	// AO_MINBRIGHT,			AO_MULTBRIGHT,					VIBRANCY,						TRUEHDR_ENABLED
 uniform vec4								u_Local7;	// cubemapEnabled,			r_cubemapCullRange,				PROCEDURAL_SKY_ENABLED,			r_skyLightContribution
 uniform vec4								u_Local8;	// NIGHT_SCALE,				PROCEDURAL_CLOUDS_CLOUDCOVER,	PROCEDURAL_CLOUDS_CLOUDSCALE,	CLOUDS_SHADOWS_ENABLED
+uniform vec4								u_Local12;	// COLOR_GRADING_ENABLED,	0.0,							0.0,							0.0
 
 #ifdef __PROCEDURALS_IN_DEFERRED_SHADER__
 uniform vec4								u_Local9;	// MAP_INFO_PLAYABLE_HEIGHT, PROCEDURAL_MOSS_ENABLED, PROCEDURAL_SNOW_ENABLED, PROCEDURAL_SNOW_ROCK_ONLY
@@ -91,14 +155,6 @@ uniform float								u_CubeMapStrength;
 
 uniform float								u_MaterialSpeculars[MATERIAL_LAST];
 uniform float								u_MaterialReflectiveness[MATERIAL_LAST];
-
-uniform int									u_lightCount;
-uniform vec3								u_lightPositions2[MAX_DEFERRED_LIGHTS];
-uniform float								u_lightDistances[MAX_DEFERRED_LIGHTS];
-uniform vec3								u_lightColors[MAX_DEFERRED_LIGHTS];
-uniform float								u_lightConeAngles[MAX_DEFERRED_LIGHTS];
-uniform vec3								u_lightConeDirections[MAX_DEFERRED_LIGHTS];
-uniform float								u_lightMaxDistance;
 
 uniform vec4								u_Mins; // mins, mins, mins, WATER_ENABLED
 uniform vec4								u_Maxs;
@@ -142,6 +198,8 @@ varying float								var_CloudShadow;
 #define CLOUDS_CLOUDCOVER					u_Local8.g
 #define CLOUDS_CLOUDSCALE					u_Local8.b
 #define CLOUDS_SHADOWS_ENABLED				u_Local8.a
+
+#define COLOR_GRADING_ENABLED				u_Local12.r
 
 #ifdef __PROCEDURALS_IN_DEFERRED_SHADER__
 #define MAP_INFO_PLAYABLE_HEIGHT			u_Local9.r
@@ -234,9 +292,8 @@ vec2 EncodeNormal(vec3 n)
 #endif //__ENCODE_NORMALS_RECONSTRUCT_Z__
 
 
-vec4 positionMapAtCoord ( vec2 coord, out bool changedToWater, out vec3 originalPosition )
+vec4 positionMapAtCoord ( vec2 coord )
 {
-	changedToWater = false;
 	return textureLod(u_PositionMap, coord, 0.0);
 }
 
@@ -252,15 +309,15 @@ vec2 RB_PBR_DefaultsForMaterial(float MATERIAL_TYPE)
 	{
 	case MATERIAL_WATER:			// 13			// light covering of water on a surface
 		specularReflectionScale = 0.1;
-		cubeReflectionScale = 0.7;
+		cubeReflectionScale = 0.775;
 		break;
 	case MATERIAL_SHORTGRASS:		// 5			// manicured lawn
 		specularReflectionScale = 0.0055;
-		cubeReflectionScale = 0.35;
+		cubeReflectionScale = 0.5125;
 		break;
 	case MATERIAL_LONGGRASS:		// 6			// long jungle grass
 		specularReflectionScale = 0.0065;
-		cubeReflectionScale = 0.35;
+		cubeReflectionScale = 0.5125;
 		break;
 	case MATERIAL_SAND:				// 8			// sandy beach
 		specularReflectionScale = 0.0055;
@@ -281,7 +338,7 @@ vec2 RB_PBR_DefaultsForMaterial(float MATERIAL_TYPE)
 		break;
 	case MATERIAL_TILES:			// 26			// tiled floor
 		specularReflectionScale = 0.026;
-		cubeReflectionScale = 0.15;
+		cubeReflectionScale = 0.3625;
 		break;
 	case MATERIAL_SOLIDWOOD:		// 1			// freshly cut timber
 	case MATERIAL_TREEBARK:
@@ -294,15 +351,15 @@ vec2 RB_PBR_DefaultsForMaterial(float MATERIAL_TYPE)
 		break;
 	case MATERIAL_POLISHEDWOOD:		// 3			// shiny polished wood
 		specularReflectionScale = 0.026;
-		cubeReflectionScale = 0.35;
+		cubeReflectionScale = 0.5125;
 		break;
 	case MATERIAL_SOLIDMETAL:		// 3			// solid girders
 		specularReflectionScale = 0.098;
-		cubeReflectionScale = 0.98;
+		cubeReflectionScale = 0.985;
 		break;
 	case MATERIAL_HOLLOWMETAL:		// 4			// hollow metal machines -- UQ1: Used for weapons to force lower parallax and high reflection...
 		specularReflectionScale = 0.098;
-		cubeReflectionScale = 0.98;
+		cubeReflectionScale = 0.985;
 		break;
 	case MATERIAL_DRYLEAVES:		// 19			// dried up leaves on the floor
 		specularReflectionScale = 0.0026;
@@ -310,15 +367,15 @@ vec2 RB_PBR_DefaultsForMaterial(float MATERIAL_TYPE)
 		break;
 	case MATERIAL_GREENLEAVES:		// 20			// fresh leaves still on a tree
 		specularReflectionScale = 0.0055;
-		cubeReflectionScale = 0.35;
+		cubeReflectionScale = 0.5125;
 		break;
 	case MATERIAL_PROCEDURALFOLIAGE:
 		specularReflectionScale = 0.0055;
-		cubeReflectionScale = 0.35;
+		cubeReflectionScale = 0.5125;
 		break;
 	case MATERIAL_FABRIC:			// 21			// Cotton sheets
 		specularReflectionScale = 0.0055;
-		cubeReflectionScale = 0.35;
+		cubeReflectionScale = 0.5125;
 		break;
 	case MATERIAL_CANVAS:			// 22			// tent material
 		specularReflectionScale = 0.0045;
@@ -326,11 +383,11 @@ vec2 RB_PBR_DefaultsForMaterial(float MATERIAL_TYPE)
 		break;
 	case MATERIAL_MARBLE:			// 12			// marble floors
 		specularReflectionScale = 0.025;
-		cubeReflectionScale = 0.46;
+		cubeReflectionScale = 0.595;
 		break;
 	case MATERIAL_SNOW:				// 14			// freshly laid snow
 		specularReflectionScale = 0.025;
-		cubeReflectionScale = 0.65;
+		cubeReflectionScale = 0.7375;
 		break;
 	case MATERIAL_MUD:				// 17			// wet soil
 		specularReflectionScale = 0.003;
@@ -354,7 +411,7 @@ vec2 RB_PBR_DefaultsForMaterial(float MATERIAL_TYPE)
 		break;
 	case MATERIAL_PLASTIC:			// 25			//
 		specularReflectionScale = 0.028;
-		cubeReflectionScale = 0.48;
+		cubeReflectionScale = 0.7375;
 		break;
 	case MATERIAL_PLASTER:			// 28			// drywall style plaster
 		specularReflectionScale = 0.0025;
@@ -362,15 +419,15 @@ vec2 RB_PBR_DefaultsForMaterial(float MATERIAL_TYPE)
 		break;
 	case MATERIAL_SHATTERGLASS:		// 29			// glass with the Crisis Zone style shattering
 		specularReflectionScale = 0.025;
-		cubeReflectionScale = 0.67;
+		cubeReflectionScale = 0.7525;
 		break;
 	case MATERIAL_ARMOR:			// 30			// body armor
 		specularReflectionScale = 0.055;
-		cubeReflectionScale = 0.66;
+		cubeReflectionScale = 0.745;
 		break;
 	case MATERIAL_ICE:				// 15			// packed snow/solid ice
 		specularReflectionScale = 0.045;
-		cubeReflectionScale = 0.78;
+		cubeReflectionScale = 0.835;
 		break;
 	case MATERIAL_GLASS:			// 10			//
 	case MATERIAL_DISTORTEDGLASS:
@@ -378,19 +435,19 @@ vec2 RB_PBR_DefaultsForMaterial(float MATERIAL_TYPE)
 	case MATERIAL_DISTORTEDPULL:
 	case MATERIAL_CLOAK:
 		specularReflectionScale = 0.035;
-		cubeReflectionScale = 0.70;
+		cubeReflectionScale = 0.775;
 		break;
 	case MATERIAL_BPGLASS:			// 18			// bulletproof glass
 		specularReflectionScale = 0.033;
-		cubeReflectionScale = 0.70;
+		cubeReflectionScale = 0.775;
 		break;
 	case MATERIAL_COMPUTER:			// 31			// computers/electronic equipment
 		specularReflectionScale = 0.042;
-		cubeReflectionScale = 0.68;
+		cubeReflectionScale = 0.76;
 		break;
 	case MATERIAL_PUDDLE:
 		specularReflectionScale = 0.098;
-		cubeReflectionScale = 0.098;
+		cubeReflectionScale = 0.3235;
 		break;
 	case MATERIAL_LAVA:
 		specularReflectionScale = 0.002;
@@ -410,17 +467,13 @@ vec2 RB_PBR_DefaultsForMaterial(float MATERIAL_TYPE)
 		break;
 	case MATERIAL_SKYSCRAPER:
 		specularReflectionScale = 0.055;
-		cubeReflectionScale = 0.66;
+		cubeReflectionScale = 0.745;
 		break;
 	default:
 		specularReflectionScale = 0.0075;
-		cubeReflectionScale = 0.2;
+		cubeReflectionScale = 0.4;
 		break;
 	}
-
-	// TODO: Update original values with these modifications that I added after... Save time on the math, even though it's minor...
-	cubeReflectionScale = cubeReflectionScale * 0.75 + 0.25;
-	//cubeReflectionScale = cubeReflectionScale * u_Local3.r + u_Local3.g;
 
 	if (int(MATERIAL_TYPE) < MATERIAL_LAST)
 	{// Check for game specified overrides...
@@ -510,9 +563,9 @@ vec3 splatblend(vec3 color1, float a1, vec3 color2, float a2)
 //
 // Procedural texturing variation...
 //
-void AddProceduralMoss(inout vec4 outColor, in vec4 position, in bool changedToWater, in vec3 originalPosition)
+void AddProceduralMoss(inout vec4 outColor, in vec4 position)
 {
-	vec3 usePos = changedToWater ? originalPosition.xyz : position.xyz;
+	vec3 usePos = position.xyz;
 	float moss = clamp(proceduralNoise( usePos.xyz * 0.00125 ), 0.0, 1.0);
 
 	if (moss > 0.25)
@@ -559,10 +612,6 @@ vec3 AddReflection(vec2 coord, vec4 positionMap, vec3 flatNorm, vec3 inColor, fl
 		return inColor;
 	}
 
-	//return vec3(reflectiveness, 0.0, 0.0);
-
-	bool changedToWater = false;
-	vec3 originalPosition;
 	float pixelDistance = distance(positionMap.xyz, u_ViewOrigin.xyz);
 
 	//const float scanSpeed = 48.0;// 16.0;// 5.0; // How many pixels to scan by on the 1st rough pass...
@@ -575,7 +624,7 @@ vec3 AddReflection(vec2 coord, vec4 positionMap, vec3 flatNorm, vec3 inColor, fl
 	for (float y = coord.y; y <= topY; y += ph * scanSpeed)
 	{
 		vec3 norm = DecodeNormal(textureLod(u_NormalMap, vec2(coord.x, y), 0.0).xy);
-		vec4 pMap = positionMapAtCoord(vec2(coord.x, y), changedToWater, originalPosition);
+		vec4 pMap = positionMapAtCoord(vec2(coord.x, y));
 
 		float pMapDistance = distance(pMap.xyz, u_ViewOrigin.xyz);
 
@@ -610,7 +659,7 @@ vec3 AddReflection(vec2 coord, vec4 positionMap, vec3 flatNorm, vec3 inColor, fl
 	for (float y = QLAND_Y; y <= topY && y <= QLAND_Y + (ph * scanSpeed); y += ph * 2.0)
 	{
 		vec3 norm = DecodeNormal(textureLod(u_NormalMap, vec2(coord.x, y), 0.0).xy);
-		vec4 pMap = positionMapAtCoord(vec2(coord.x, y), changedToWater, originalPosition);
+		vec4 pMap = positionMapAtCoord(vec2(coord.x, y));
 		
 		float pMapDistance = distance(pMap.xyz, u_ViewOrigin.xyz);
 
@@ -645,7 +694,7 @@ vec3 AddReflection(vec2 coord, vec4 positionMap, vec3 flatNorm, vec3 inColor, fl
 		return inColor;
 	}
 
-	vec4 pMap = positionMapAtCoord(vec2(coord.x, upPos), changedToWater, originalPosition);
+	vec4 pMap = positionMapAtCoord(vec2(coord.x, upPos));
 
 	if (pMap.a > 1.0 && pMap.xyz != vec3(0.0) && distance(pMap.xyz, u_ViewOrigin.xyz) <= pixelDistance)
 	{// The reflected pixel is closer then the original, this would be a bad reflection.
@@ -1136,52 +1185,27 @@ vec3 ContrastSaturationBrightness(vec3 color, float con, float sat, float brt)
 	return conColor;
 }
 
+vec3 ColorGrade( vec3 vColor )
+{
+	vec3 vHue = vec3(1.0, .7, .2);
+	
+	vec3 vGamma = 1.0 + vHue * 0.6;
+	vec3 vGain = vec3(.9) + vHue * vHue * 8.0;
+	
+	vColor *= 1.5;
+	
+	float fMaxLum = 100.0;
+	vColor /= fMaxLum;
+	vColor = pow( vColor, vGamma );
+	vColor *= vGain;
+	vColor *= fMaxLum;  
+	return vColor;
+}
+
 vec3 GetScreenPixel(inout vec2 texCoords)
 {
 #ifndef __SSDM_IN_DEFERRED_SHADER__
 	return texture(u_DiffuseMap, texCoords).rgb;
-#elif defined(TEST_PARALLAX2)
-	vec3 dMap = texture(u_RoadMap, texCoords).rgb;
-	vec3 color = texture(u_DiffuseMap, texCoords).rgb;
-
-	if (dMap.r <= 0.0 || DISPLACEMENT_STRENGTH == 0.0)
-	{
-		return color;
-	}
-	
-	float invDepth = clamp((1.0 - texture(u_ScreenDepthMap, texCoords).r) /** 2.0 - 1.0*/, 0.0, 1.0);
-
-	if (invDepth <= 0.0)
-	{
-		return color;
-	}
-
-	float Ray = dMap.x;
-	vec2 Displace = dMap.yz * 2.0 - 1.0;
-
-	vec2 distFromCenter = vec2(length(texCoords.x - 0.5), length(texCoords.y - 0.5));
-	float screenEdgeScale = clamp(max(distFromCenter.x, distFromCenter.y) * 2.0, 0.0, 1.0);
-	screenEdgeScale = 1.0 - pow(screenEdgeScale, 1.5);
-	Ray *= screenEdgeScale;
-
-	texCoords = (texCoords + Displace * Ray * invDepth);
-
-	color = texture(u_DiffuseMap, texCoords).rgb;
-	
-	/*vec3 NormalMap = texture(u_NormalMap, NewUv).xyy;
-	NormalMap = DecodeNormal(NormalMap.xy);
-
-	float Normal = clamp(dot(reflect(-View, NormalMap), LightV), 0.0, 1.0);
-
-	Normal = pow(Normal, SpecularPow) + saturate(dot(NormalMap, LightV));
-
-	float PixelLight = 1.0 - clamp(dot(IN.Attenuation, IN.Attenuation), 0.0, 1.0);
-
-	vec3 Light = PixelLight * LightColor;
-
-	return vec4(color * ((Normal * Light) + Ambient), 1.0);
-	*/
-	return color;
 #else //__SSDM_IN_DEFERRED_SHADER__
 	vec3 dMap = texture(u_RoadMap, texCoords).rgb;
 	vec3 color = texture(u_DiffuseMap, texCoords).rgb;
@@ -1240,10 +1264,7 @@ vec3 GetScreenPixel(inout vec2 texCoords)
 void main(void)
 {
 	vec2 texCoords = var_TexCoords;
-	bool changedToWater = false;
-	vec3 originalPosition;
-	vec4 position = positionMapAtCoord(texCoords, changedToWater, originalPosition);
-
+	vec4 position = positionMapAtCoord(texCoords);
 	vec4 color = vec4(GetScreenPixel(texCoords), 1.0);
 	vec4 outColor = color;
 
@@ -1283,6 +1304,12 @@ void main(void)
 		}
 
 		outColor.rgb = clamp(outColor.rgb, 0.0, 1.0);
+		
+		if (COLOR_GRADING_ENABLED > 0.0)
+		{
+			outColor.rgb = ColorGrade( outColor.rgb );
+		}
+		
 		gl_FragColor = outColor;
 
 		gl_FragColor.rgb = pow(gl_FragColor.rgb, vec3(1.0 / GAMMA_CORRECTION));
@@ -1352,9 +1379,9 @@ void main(void)
 
 	vec3 N = norm.xyz;
 	vec3 E = normalize(u_ViewOrigin.xyz - position.xyz);
+	vec3 sunDir = normalize(u_ViewOrigin.xyz - u_PrimaryLightOrigin.xyz);
 	vec3 rayDir = reflect(E, N);
 	vec3 cubeRayDir = reflect(E, flatNorm);
-	vec3 sunDir = normalize(position.xyz - u_PrimaryLightOrigin.xyz);
 	float NE = clamp(length(dot(N, E)), 0.0, 1.0);
 
 	float b = clamp(length(outColor.rgb/3.0), 0.0, 1.0);
@@ -1366,7 +1393,7 @@ void main(void)
 #ifdef __PROCEDURALS_IN_DEFERRED_SHADER__
 	if (PROCEDURAL_MOSS_ENABLED > 0.0 && (position.a - 1.0 == MATERIAL_TREEBARK || position.a - 1.0 == MATERIAL_ROCK))
 	{// Add any procedural moss...
-		AddProceduralMoss(outColor, position, changedToWater, originalPosition);
+		AddProceduralMoss(outColor, position);
 	}
 
 	if (PROCEDURAL_SNOW_ENABLED > 0.0 
@@ -1472,14 +1499,12 @@ void main(void)
 	else if (ssrReflectivePower < 0.5) ssrReflectivePower = 0.0; // cull on non-wet stuff, when theres little point...
 #endif //defined(__SCREEN_SPACE_REFLECTIONS__)
 
+#if defined(__CUBEMAPS__) && defined(REALTIME_CUBEMAPS)
+	if (isPuddle) cubeReflectionFactor = WETNESS * 3.0; // 3x - 8x seems about right...
+	else if (wetness > 0.0) cubeReflectionFactor += cubeReflectionFactor*0.333;
+#endif //defined(__CUBEMAPS__) && defined(REALTIME_CUBEMAPS)
 
-	float diffuse;
-	if (position.a - 1.0 == MATERIAL_GREENLEAVES)
-		diffuse = clamp(pow(clamp(dot(-sunDir.rgb, bump.rgb), 0.0, 1.0), 8.0) * 0.6 + 0.6, 0.0, 1.0);
-	else
-		diffuse = clamp(pow(clamp(dot(-sunDir.rgb, bump.rgb), 0.0, 1.0), 8.0) * 0.2 + 0.8, 0.0, 1.0);
 
-	color.rgb = outColor.rgb = outColor.rgb * diffuse;
 
 	float origColorStrength = clamp(max(color.r, max(color.g, color.b)), 0.0, 1.0) * 0.75 + 0.25;
 
@@ -1494,6 +1519,18 @@ void main(void)
 	if (SHADOWS_ENABLED > 0.0 && NIGHT_SCALE < 1.0)
 	{
 		float shadowValue = texture(u_ShadowMap, texCoords).r;
+		float selfShadow = max(dot(flatNorm, -sunDir.rgb), 0.0);
+
+		if (position.a - 1.0 == MATERIAL_GREENLEAVES)
+		{
+			selfShadow = clamp(selfShadow + 0.5, 0.0, 1.0);
+		}
+		if (position.a - 1.0 == MATERIAL_PROCEDURALFOLIAGE)
+		{
+			selfShadow = clamp(selfShadow + 0.5, 0.0, 1.0);
+		}
+
+		shadowValue = min(shadowValue, selfShadow);
 
 		shadowValue = pow(shadowValue, 1.5);
 
@@ -1528,42 +1565,19 @@ void main(void)
 			reflected = vec3(-reflected.y, -reflected.z, -reflected.x); // for old sky cubemap generation based on sky textures
 		}
 
-		const float lod1 = 4.0;
-		const float lod2 = 5.0;
-		const float lod3 = 7.0;
-		const float lod4 = 10.0;
-
 		if (NIGHT_SCALE > 0.0 && NIGHT_SCALE < 1.0)
 		{// Mix between night and day colors...
-			vec3 skyColorDay = textureLod(u_SkyCubeMap, reflected, lod1).rgb;
-			//skyColorDay += textureLod(u_SkyCubeMap, reflected, lod2).rgb;
-			//skyColorDay += textureLod(u_SkyCubeMap, reflected, lod3).rgb;
-			//skyColorDay += textureLod(u_SkyCubeMap, reflected, lod4).rgb;
-			//skyColorDay /= 4.0;
-
-			vec3 skyColorNight = textureLod(u_SkyCubeMapNight, reflected, lod1).rgb;
-			//skyColorNight += textureLod(u_SkyCubeMapNight, reflected, lod2).rgb;
-			//skyColorNight += textureLod(u_SkyCubeMapNight, reflected, lod3).rgb;
-			//skyColorNight += textureLod(u_SkyCubeMapNight, reflected, lod4).rgb;
-			//skyColorNight /= 4.0;
-
-			skyColor = mix(skyColorDay, skyColorNight, clamp(NIGHT_SCALE, 0.0, 1.0));
+			vec3 skyColorDay = textureLod(u_SkyCubeMap, reflected, 4.0).rgb;
+			vec3 skyColorNight = textureLod(u_SkyCubeMapNight, reflected, 4.0).rgb;
+			skyColor = mix(skyColorDay, skyColorNight, NIGHT_SCALE);
 		}
 		else if (NIGHT_SCALE >= 1.0)
 		{// Night only colors...
-			skyColor = textureLod(u_SkyCubeMapNight, reflected, lod1).rgb;
-			//skyColor += textureLod(u_SkyCubeMapNight, reflected, lod2).rgb;
-			//skyColor += textureLod(u_SkyCubeMapNight, reflected, lod3).rgb;
-			//skyColor += textureLod(u_SkyCubeMapNight, reflected, lod4).rgb;
-			//skyColor /= 4.0;
+			skyColor = textureLod(u_SkyCubeMapNight, reflected, 4.0).rgb;
 		}
 		else
 		{// Day only colors...
-			skyColor = textureLod(u_SkyCubeMap, reflected, lod1).rgb;
-			//skyColor += textureLod(u_SkyCubeMap, reflected, lod2).rgb;
-			//skyColor += textureLod(u_SkyCubeMap, reflected, lod3).rgb;
-			//skyColor += textureLod(u_SkyCubeMap, reflected, lod4).rgb;
-			//skyColor /= 4.0;
+			skyColor = textureLod(u_SkyCubeMap, reflected, 4.0).rgb;
 		}
 
 		skyColor = clamp(ContrastSaturationBrightness(skyColor, 1.0, 2.0, 0.333), 0.0, 1.0);
@@ -1573,33 +1587,49 @@ void main(void)
 
 	if (specularReflectivePower > 0.0)
 	{// If this pixel is ging to get any specular reflection, generate (PBR would instead look up image buffer) specular color, and grab any cubeMap lighting as well...
+/*
 		// Construct generic specular map by creating a greyscale, contrasted, saturation removed, color from the screen color... Then multiply by the material's default specular modifier...
 #define spec_cont_1 ( 16.0 / 255.0)
 #define spec_cont_2 (255.0 / 192.0)
 			specularColor = clamp((clamp(outColor.rgb - spec_cont_1, 0.0, 1.0)) * spec_cont_2, 0.0, 1.0);
 			specularColor = clamp(Vibrancy( specularColor.rgb, 1.0 ), 0.0, 1.0);
+*/
 
 #ifndef __LQ_MODE__
 #if defined(__CUBEMAPS__)
+#ifdef REALTIME_CUBEMAPS
+		if (CUBEMAP_ENABLED > 0.0 && cubeReflectionFactor > 0.0 && NE > 0.0 && u_CubeMapStrength > 0.0)
+		{// Cubemaps enabled...
+			float curDist = distance(u_ViewOrigin.xyz, position.xyz);
+			float cubeFade = 1.0 - clamp(curDist / CUBEMAP_CULLRANGE, 0.0, 1.0);
+			cubeFade = pow(cubeFade, 1.5);
+			
+			if (cubeFade > 0.0)
+			{
+				vec3 cubeLightColor = textureLod(u_CubeMap, cubeRayDir, /*0.0*/7.0 - (cubeReflectionFactor * 7.0)).rgb;
+				outColor.rgb = mix(outColor.rgb, outColor.rgb + cubeLightColor.rgb, clamp(NE * cubeFade * (u_CubeMapStrength * 5.0) * cubeReflectionFactor, 0.0, 1.0));
+			}
+		}
+#else //!REALTIME_CUBEMAPS
 		if (CUBEMAP_ENABLED > 0.0 && cubeReflectionFactor > 0.0 && NE > 0.0 && u_CubeMapStrength > 0.0)
 		{// Cubemaps enabled...
 			vec3 cubeLightColor = vec3(0.0);
+			float curDist = distance(u_ViewOrigin.xyz, position.xyz);
+			float cubeDist = distance(u_CubeMapInfo.xyz, position.xyz);
+			float cubeFade = (1.0 - clamp(curDist / CUBEMAP_CULLRANGE, 0.0, 1.0)) * (1.0 - clamp(cubeDist / CUBEMAP_CULLRANGE, 0.0, 1.0));
 			
 			// This used to be done in rend2 code, now done here because I need u_CubeMapInfo.xyz to be cube origin for distance checks above... u_CubeMapInfo.w is now radius.
 			vec4 cubeInfo = u_CubeMapInfo;
-			cubeInfo.xyz -= u_ViewOrigin.xyz;
+			//cubeInfo.xyz -= u_ViewOrigin.xyz;
+			cubeInfo.xyz = vec3(0.0);
 
-			cubeInfo.w = pow(distance(u_ViewOrigin.xyz, u_CubeMapInfo.xyz), 3.0);
+			cubeInfo.w = curDist;//pow(distance(u_ViewOrigin.xyz, u_CubeMapInfo.xyz), 3.0);
 
 			cubeInfo.xyz *= 1.0 / cubeInfo.w;
 			cubeInfo.w = 1.0 / cubeInfo.w;
 
 			vec3 parallax = cubeInfo.xyz + cubeInfo.w * E;
 			parallax.z *= -1.0;
-
-			float curDist = distance(u_ViewOrigin.xyz, position.xyz);
-			float cubeDist = distance(u_CubeMapInfo.xyz, position.xyz);
-			float cubeFade = (1.0 - clamp(curDist / CUBEMAP_CULLRANGE, 0.0, 1.0)) * (1.0 - clamp(cubeDist / CUBEMAP_CULLRANGE, 0.0, 1.0));
 
 			if (cubeFade > 0.0)
 			{
@@ -1609,6 +1639,7 @@ void main(void)
 				outColor.rgb = mix(outColor.rgb, outColor.rgb + cubeLightColor.rgb, clamp(NE * cubeFade * (u_CubeMapStrength * 20.0) * cubeReflectionFactor, 0.0, 1.0));
 			}
 		}
+#endif //REALTIME_CUBEMAPS
 		else
 		{
 			if (cubeReflectionFactor > 0.0 && NE > 0.0)
@@ -1616,12 +1647,6 @@ void main(void)
 				vec2 shinyTC = ((cubeRayDir.xy + cubeRayDir.z) / 2.0) * 0.5 + 0.5;
 
 				vec3 shiny = textureLod(u_WaterEdgeMap, shinyTC, 5.5 - (cubeReflectionFactor * 5.5)).rgb;
-				//vec3 shiny = textureLod(u_WaterEdgeMap, shinyTC, 4.0 - (cubeReflectionFactor * 4.0)).rgb;
-				//shiny += textureLod(u_WaterEdgeMap, shinyTC, 5.0 - (cubeReflectionFactor * 5.0)).rgb;
-				//shiny += textureLod(u_WaterEdgeMap, shinyTC, 7.0 - (cubeReflectionFactor * 7.0)).rgb;
-				//shiny += textureLod(u_WaterEdgeMap, shinyTC, 10.0 - (cubeReflectionFactor * 10.0)).rgb;
-				//shiny /= 4.0;
-
 				shiny = clamp(ContrastSaturationBrightness(shiny, 1.75, 1.0, 0.333), 0.0, 1.0);
 				outColor.rgb = mix(outColor.rgb, outColor.rgb + shiny.rgb, clamp(NE * cubeReflectionFactor * (origColorStrength * 0.75 + 0.25), 0.0, 1.0));
 			}
@@ -1632,12 +1657,6 @@ void main(void)
 			vec2 shinyTC = ((cubeRayDir.xy + cubeRayDir.z) / 2.0) * 0.5 + 0.5;
 
 			vec3 shiny = textureLod(u_WaterEdgeMap, shinyTC, 5.5 - (cubeReflectionFactor * 5.5)).rgb;
-			//vec3 shiny = textureLod(u_WaterEdgeMap, shinyTC, 4.0 - (cubeReflectionFactor * 4.0)).rgb;
-			//shiny += textureLod(u_WaterEdgeMap, shinyTC, 5.0 - (cubeReflectionFactor * 5.0)).rgb;
-			//shiny += textureLod(u_WaterEdgeMap, shinyTC, 7.0 - (cubeReflectionFactor * 7.0)).rgb;
-			//shiny += textureLod(u_WaterEdgeMap, shinyTC, 10.0 - (cubeReflectionFactor * 10.0)).rgb;
-			//shiny /= 4.0;
-
 			shiny = clamp(ContrastSaturationBrightness(shiny, 1.75, 1.0, 0.333), 0.0, 1.0);
 			outColor.rgb = mix(outColor.rgb, outColor.rgb + shiny.rgb, clamp(NE * cubeReflectionFactor * (origColorStrength * 0.75 + 0.25), 0.0, 1.0));
 		}
@@ -1646,21 +1665,19 @@ void main(void)
 	}
 
 
-	float SE = clamp(dot(/*E*/rayDir, sunDir), 0.0, 1.0);
+/*
+	float SE = clamp(dot(bump, -sunDir), 0.0, 1.0);
 	float specPower = ((clamp(SE, 0.0, 1.0) + clamp(pow(SE, 2.0), 0.0, 1.0)) * 0.5) * 0.333;
-
-
 	outColor.rgb = clamp(outColor.rgb + (specularColor.rgb * specularReflectivePower * specPower * finalShadow), 0.0, 1.0);
-
+*/
 
 	if (SKY_LIGHT_CONTRIBUTION > 0.0 && cubeReflectionFactor > 0.0)
 	{// Sky light contributions...
 #ifndef __LQ_MODE__
 		outColor.rgb = mix(outColor.rgb, outColor.rgb + skyColor, clamp(NE * SKY_LIGHT_CONTRIBUTION * cubeReflectionFactor * (origColorStrength * 0.75 + 0.25), 0.0, 1.0));
 #endif //__LQ_MODE__
-		float reflectVectorPower = pow(specularReflectivePower*NE, 16.0) * reflectionPower;
-		outColor.rgb = mix(outColor.rgb, outColor.rgb + specularColor, clamp(pow(reflectVectorPower, 2.0) * cubeReflectionFactor * (origColorStrength * 0.75 + 0.25), 0.0, 1.0));
-		//outColor.rgb = skyColor;
+		//float reflectVectorPower = pow(specularReflectivePower*NE, 16.0) * reflectionPower;
+		//outColor.rgb = mix(outColor.rgb, outColor.rgb + specularColor, clamp(pow(reflectVectorPower, 2.0) * cubeReflectionFactor * (origColorStrength * 0.75 + 0.25), 0.0, 1.0));
 	}
 
 	if (SUN_PHONG_SCALE > 0.0 && specularReflectivePower > 0.0)
@@ -1669,12 +1686,10 @@ void main(void)
 
 		float PshadowValue = 1.0 - texture(u_RoadsControlMap, texCoords).a;
 
-#define LIGHT_COLOR_POWER			4.0
-
 		if (phongFactor > 0.0 && NIGHT_SCALE < 1.0 && finalShadow > 0.0)
 		{// this is blinn phong
 			float maxBright = clamp(max(outColor.r, max(outColor.g, outColor.b)), 0.0, 1.0);
-			float power = clamp(pow(maxBright * 0.75, LIGHT_COLOR_POWER) + 0.333, 0.0, 1.0);
+			float power = clamp(pow(maxBright * 0.75, 4.0) + 0.333, 0.0, 1.0);
 			vec3 lightColor = Vibrancy(u_PrimaryLightColor.rgb, 1.0);
 			float lightMult = clamp(specularReflectivePower * power, 0.0, 1.0);
 
@@ -1708,19 +1723,32 @@ void main(void)
 			vec3 addedLight = vec3(0.0);
 			float maxBright = clamp(max(outColor.r, max(outColor.g, outColor.b)), 0.0, 1.0);
 			float power = maxBright * 0.85;
-			power = clamp(pow(power, LIGHT_COLOR_POWER) + 0.5/*0.333*/, 0.0, 1.0);
+			power = clamp(pow(power, 4.0) + 0.5, 0.0, 1.0);
 
 			if (power > 0.0)
 			{
 				for (int li = 0; li < u_lightCount; li++)
 				{
 					vec3 lightPos = u_lightPositions2[li].xyz;
-					vec3 lightDir = normalize(lightPos - position.xyz);
 					float lightDist = distance(lightPos, position.xyz);
 					float coneModifier = 1.0;
 
-					if (HAVE_CONE_ANGLES > 0.0 && u_lightConeAngles[li] > 0.0)
+					//if ((lightDist * lightDist) > (u_lightDistances[li] * u_lightDistances[li]))
+					if (lightDist > u_lightDistances[li])
 					{
+						continue;
+					}
+
+					float lightPlayerDist = distance(lightPos.xyz, u_ViewOrigin.xyz);
+
+					if (lightPlayerDist > MAX_DEFERRED_LIGHT_RANGE)
+					{
+						continue;
+					}
+
+					/*if (HAVE_CONE_ANGLES > 0.0 && u_lightConeAngles[li] > 0.0)
+					{
+						vec3 lightDir = normalize(lightPos - position.xyz);
 						vec3 coneDir = normalize(u_lightConeDirections[li]);
 
 						float lightToSurfaceAngle = degrees(acos(dot(-lightDir, coneDir)));
@@ -1729,9 +1757,7 @@ void main(void)
 						{// Outside of this light's cone...
 							continue;
 						}
-					}
-
-					float lightPlayerDist = distance(lightPos.xyz, u_ViewOrigin.xyz);
+					}*/
 
 					float lightDistMult = 1.0 - clamp((lightPlayerDist / MAX_DEFERRED_LIGHT_RANGE), 0.0, 1.0);
 					lightDistMult = pow(lightDistMult, 2.0);
@@ -1750,6 +1776,7 @@ void main(void)
 
 							if (lightStrength > 0.0)
 							{
+								vec3 lightDir = normalize(lightPos - position.xyz);
 								vec3 lightColor = (u_lightColors[li].rgb / length(u_lightColors[li].rgb)) * MAP_EMISSIVE_COLOR_SCALE * maxLightsScale;
 								float selfShadow = clamp(pow(clamp(dot(-lightDir.rgb, bump.rgb), 0.0, 1.0), 8.0) * 0.6 + 0.6, 0.0, 1.0);
 				
@@ -1778,7 +1805,7 @@ void main(void)
 	}
 
 #if defined(__SCREEN_SPACE_REFLECTIONS__)
-	if (REFLECTIONS_ENABLED > 0.0 && ssrReflectivePower > 0.0 && position.a - 1.0 != MATERIAL_WATER && !changedToWater)
+	if (REFLECTIONS_ENABLED > 0.0 && ssrReflectivePower > 0.0 && position.a - 1.0 != MATERIAL_WATER)
 	{
 		if (isPuddle)
 		{// Just basic water color addition for now with reflections... Maybe raindrops at some point later...
@@ -1832,17 +1859,17 @@ void main(void)
 	}
 #endif //defined(__ENHANCED_AO__)
 
-	finalShadow = mix(finalShadow, 1.0, clamp(NIGHT_SCALE, 0.0, 1.0)); // Dampen out shadows at sunrise/sunset...
+	finalShadow = mix(finalShadow, 1.0, NIGHT_SCALE); // Dampen out shadows at sunrise/sunset...
 
 #ifdef __CLOUD_SHADOWS__
-	if (CLOUDS_SHADOWS_ENABLED == 1.0)
+	if (CLOUDS_SHADOWS_ENABLED == 1.0 && NIGHT_SCALE < 1.0)
 	{
 		finalShadow = min(finalShadow, clamp(var_CloudShadow + 0.1, 0.0, 1.0));
 	}
-	else if (CLOUDS_SHADOWS_ENABLED >= 2.0)
+	else if (CLOUDS_SHADOWS_ENABLED >= 2.0 && NIGHT_SCALE < 1.0)
 	{
 		float cShadow = CloudShadows(position.xyz) * 0.5 + 0.5;
-		cShadow = mix(cShadow, 1.0, clamp(NIGHT_SCALE, 0.0, 1.0)); // Dampen out cloud shadows at sunrise/sunset...
+		cShadow = mix(cShadow, 1.0, NIGHT_SCALE); // Dampen out cloud shadows at sunrise/sunset...
 		finalShadow = min(finalShadow, clamp(cShadow + 0.1, 0.0, 1.0));
 	}
 #endif //__CLOUD_SHADOWS__
@@ -1866,6 +1893,12 @@ void main(void)
 	}
 
 	outColor.rgb = clamp(outColor.rgb, 0.0, 1.0);
+
+	if (COLOR_GRADING_ENABLED > 0.0)
+	{
+		outColor.rgb = ColorGrade( outColor.rgb );
+	}
+
 	gl_FragColor = outColor;
 	
 	gl_FragColor.rgb = pow(gl_FragColor.rgb, vec3(1.0 / GAMMA_CORRECTION));

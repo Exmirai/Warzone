@@ -106,6 +106,103 @@ extern float		TERRAIN_TESSELLATION_OFFSET;
 extern float		TERRAIN_TESSELLATION_MIN_SIZE;
 
 
+/*typedef struct {
+	unsigned int  count;
+	unsigned int  instanceCount;
+	unsigned int  firstIndex;
+	unsigned int  baseInstance;
+} DrawArraysIndirectCommand;*/
+
+typedef struct {
+	unsigned int  count;
+	unsigned int  instanceCount;
+	unsigned int  firstIndex;
+	unsigned int  baseVertex;
+	unsigned int  baseInstance;
+} DrawElementsIndirectCommand;
+
+/*GLuint gIndirectArraysBuffer = 0;
+DrawArraysIndirectCommand gDrawArraysCommand[1];*/
+
+GLuint gIndirectElementsBuffer = 0;
+DrawElementsIndirectCommand gDrawElementsCommand[1];
+
+void R_CreateIndirectBuffers(void)
+{
+	/*if (gIndirectArraysBuffer == 0)
+	{
+		qglGenBuffers(1, &gIndirectArraysBuffer);
+		qglBindBuffer(GL_DRAW_INDIRECT_BUFFER, gIndirectArraysBuffer);
+		qglBufferData(GL_DRAW_INDIRECT_BUFFER, sizeof(DrawElementsIndirectCommand), &gDrawElementsCommand, GL_STATIC_DRAW);
+	}*/
+
+	if (gIndirectElementsBuffer == 0)
+	{
+		qglGenBuffers(1, &gIndirectElementsBuffer);
+		//qglBindBuffer(GL_DRAW_INDIRECT_BUFFER, gIndirectElementsBuffer);
+		//qglBufferData(GL_DRAW_INDIRECT_BUFFER, sizeof(DrawElementsIndirectCommand), &gDrawElementsCommand, /*GL_STATIC_DRAW*/GL_DYNAMIC_DRAW);
+	}
+}
+
+void R_DrawElementsVBOIndirect(int numIndexes, glIndex_t firstIndex, glIndex_t minIndex, glIndex_t maxIndex, glIndex_t numVerts, qboolean tesselation)
+{
+	R_CreateIndirectBuffers();
+
+
+	gDrawElementsCommand[0].count = numIndexes;       //1 triangle = 3 vertices
+	gDrawElementsCommand[0].instanceCount = 1;     //Draw 1 instance
+	gDrawElementsCommand[0].firstIndex = firstIndex;        //Draw from index 0 for this instance
+	gDrawElementsCommand[0].baseVertex = 0; //Starting from baseVert
+	gDrawElementsCommand[0].baseInstance = 0;      //gl_InstanceID
+
+												   //feed the draw command data to the gpu via the gIndirectBuffer
+	qglBindBuffer(GL_DRAW_INDIRECT_BUFFER, gIndirectElementsBuffer);
+	qglBufferData(GL_DRAW_INDIRECT_BUFFER, sizeof(DrawElementsIndirectCommand), &gDrawElementsCommand, GL_DYNAMIC_DRAW);
+
+	if (tesselation)
+	{
+		qglPatchParameteri(GL_PATCH_VERTICES, 3);
+		qglMultiDrawElementsIndirect(GL_PATCHES, GL_INDEX_TYPE, (const GLvoid **)0/*gDrawElementsCommand*/, 1, 0);
+	}
+	else
+	{
+		qglMultiDrawElementsIndirect(GL_TRIANGLES, GL_INDEX_TYPE, (const GLvoid **)0/*gDrawElementsCommand*/, 1, 0);
+	}
+}
+
+#if 0
+DrawElementsIndirectCommand gDrawMultiElementsCommand[MAX_MULTIDRAW_PRIMITIVES];
+
+void R_DrawMultiElementsVBOIndirect(int multiDrawPrimitives, glIndex_t *multiDrawMinIndex, glIndex_t *multiDrawMaxIndex,
+	GLsizei *multiDrawNumIndexes, glIndex_t **multiDrawFirstIndex, glIndex_t numVerts, qboolean tesselation)
+{
+	R_CreateIndirectBuffers();
+
+	for (int i = 0; i < multiDrawPrimitives; i++)
+	{
+		gDrawMultiElementsCommand[i].count = multiDrawNumIndexes[i];       //1 triangle = 3 vertices
+		gDrawMultiElementsCommand[i].instanceCount = 1;     //Draw 1 instance
+		gDrawMultiElementsCommand[i].firstIndex = multiDrawMinIndex[i]+(glIndex_t)multiDrawFirstIndex[i];        //Draw from index 0 for this instance
+		gDrawMultiElementsCommand[i].baseVertex = 0; //Starting from baseVert
+		gDrawMultiElementsCommand[i].baseInstance = 0;      //gl_InstanceID
+	}
+
+												   //feed the draw command data to the gpu via the gIndirectBuffer
+	qglBindBuffer(GL_DRAW_INDIRECT_BUFFER, gIndirectElementsBuffer);
+	qglBufferData(GL_DRAW_INDIRECT_BUFFER, sizeof(DrawElementsIndirectCommand) * multiDrawPrimitives, &gDrawMultiElementsCommand, GL_DYNAMIC_DRAW);
+
+	if (tesselation)
+	{
+		qglPatchParameteri(GL_PATCH_VERTICES, 3);
+		qglMultiDrawElementsIndirect(GL_PATCHES, GL_INDEX_TYPE, (const GLvoid **)0, 1, 0);
+	}
+	else
+	{
+		qglMultiDrawElementsIndirect(GL_TRIANGLES, GL_INDEX_TYPE, (const GLvoid **)0, 1, 0);
+	}
+}
+#endif
+
 /*
 ==================
 R_DrawElements
@@ -120,6 +217,9 @@ void R_DrawElementsVBO( int numIndexes, glIndex_t firstIndex, glIndex_t minIndex
 		maxIndex = numIndexes / 2;
 	}
 
+#if 1
+	R_DrawElementsVBOIndirect(numIndexes, firstIndex, minIndex, maxIndex, numVerts, tesselation);
+#else
 	if (tesselation)
 	{
 		//GLint MaxPatchVertices = 0;
@@ -136,11 +236,15 @@ void R_DrawElementsVBO( int numIndexes, glIndex_t firstIndex, glIndex_t minIndex
 	{
 		qglDrawRangeElements(GL_TRIANGLES, minIndex, maxIndex, numIndexes, GL_INDEX_TYPE, BUFFER_OFFSET(firstIndex * sizeof(glIndex_t)));
 	}
+#endif
 }
 
 void R_DrawMultiElementsVBO( int multiDrawPrimitives, glIndex_t *multiDrawMinIndex, glIndex_t *multiDrawMaxIndex,
 	GLsizei *multiDrawNumIndexes, glIndex_t **multiDrawFirstIndex, glIndex_t numVerts, qboolean tesselation)
 {
+#if 0
+	R_DrawMultiElementsVBOIndirect(multiDrawPrimitives, multiDrawMinIndex, multiDrawMaxIndex, multiDrawNumIndexes, multiDrawFirstIndex, numVerts, tesselation);
+#else
 	if (tesselation)
 	{
 		//GLint MaxPatchVertices = 0;
@@ -157,8 +261,8 @@ void R_DrawMultiElementsVBO( int multiDrawPrimitives, glIndex_t *multiDrawMinInd
 		qglMultiDrawElements(GL_TRIANGLES, multiDrawNumIndexes, GL_INDEX_TYPE, (const GLvoid **)multiDrawFirstIndex, multiDrawPrimitives);
 		//qglMultiDrawElementsIndirect(GL_TRIANGLES, GL_INDEX_TYPE, (const GLvoid **)multiDrawFirstIndex, *multiDrawNumIndexes, 0);
 	}
+#endif
 }
-
 
 /*
 =============================================================
@@ -250,6 +354,12 @@ static void DrawTris (shaderCommands_t *input) {
 
 		GLSL_SetUniformMatrix16(sp, UNIFORM_MODELVIEWPROJECTIONMATRIX, glState.modelviewProjection);
 		GLSL_SetUniformVec4(sp, UNIFORM_COLOR, /*colorWhite*/colorYellow);
+
+		if (tr.textureColorShader.isBindless)
+		{
+			GLSL_SetBindlessTexture(&tr.textureColorShader, UNIFORM_DIFFUSEMAP, &tr.whiteImage, 0);
+			GLSL_BindlessUpdate(&tr.textureColorShader);
+		}
 
 		if (input->multiDrawPrimitives)
 		{
@@ -1030,20 +1140,33 @@ static void ProjectPshadowVBOGLSL( void ) {
 			&& r_terrainTessellationMax->value >= 2.0)
 		{// When tessellating terrain, we need to drop the grasses down lower to allow for the offset...
 			TERRAIN_TESS_OFFSET = TERRAIN_TESSELLATION_OFFSET;
-			//GL_BindToTMU(tr.tessellationMapImage, TB_HEIGHTMAP);
 
 			if (useTesselation == 3)
 			{
 				TERRAIN_TESS_OFFSET = TERRAIN_TESSELLATION_3D_OFFSET[2];
 			}
 
-			if (tr.roadsMapImage != tr.blackImage)
+			if (sp->isBindless)
 			{
-				GL_BindToTMU(tr.roadsMapImage, TB_ROADSCONTROLMAP);
+				if (tr.roadsMapImage && tr.roadsMapImage != tr.blackImage)
+				{
+					GLSL_SetBindlessTexture(sp, UNIFORM_ROADMAP, &tr.roadsMapImage, 0);
+				}
+				else
+				{
+					GLSL_SetBindlessTexture(sp, UNIFORM_ROADMAP, &tr.blackImage, 0);
+				}
 			}
 			else
 			{
-				GL_BindToTMU(tr.blackImage, TB_ROADSCONTROLMAP);
+				if (tr.roadsMapImage && tr.roadsMapImage != tr.blackImage)
+				{
+					GL_BindToTMU(tr.roadsMapImage, TB_ROADSCONTROLMAP);
+				}
+				else
+				{
+					GL_BindToTMU(tr.blackImage, TB_ROADSCONTROLMAP);
+				}
 			}
 		}
 
@@ -1177,7 +1300,16 @@ static void ProjectPshadowVBOGLSL( void ) {
 		GLSL_SetUniformVec4(sp, UNIFORM_LOCAL2, vector);
 
 
-		GL_BindToTMU( tr.pshadowMaps[l], TB_DIFFUSEMAP );
+		if (sp->isBindless)
+		{
+			GLSL_SetBindlessTexture(sp, UNIFORM_SHADOWMAP, &tr.pshadowMaps[l], 0);
+			GLSL_BindlessUpdate(sp);
+		}
+		else
+		{
+			GLSL_SetUniformInt(sp, UNIFORM_SHADOWMAP, TB_DIFFUSEMAP);
+			GL_BindToTMU(tr.pshadowMaps[l], TB_DIFFUSEMAP);
+		}
 
 		//
 		// draw
@@ -1661,7 +1793,7 @@ void RB_SetMaterialBasedProperties(shaderProgram_t *sp, shaderStage_t *pStage, i
 			hasSplatMap3 = 1.0;
 		}
 
-		if (tr.roadsMapImage != tr.blackImage)
+		if (tr.roadsMapImage && tr.roadsMapImage != tr.blackImage)
 		{// Seems we have roads for this map...
 			hasRoadMap = 1.0;
 		}
@@ -1681,7 +1813,7 @@ void RB_SetMaterialBasedProperties(shaderProgram_t *sp, shaderStage_t *pStage, i
 		GLSL_SetUniformVec4(sp, UNIFORM_LOCAL1, local1);
 
 		vec4_t local2;
-		VectorSet4(local2, hasWaterEdgeMap, hasNormalMap, 0.0, MAP_WATER_LEVEL);
+		VectorSet4(local2, hasWaterEdgeMap, hasNormalMap, WATER_WAVE_HEIGHT, MAP_WATER_LEVEL);
 		GLSL_SetUniformVec4(sp, UNIFORM_LOCAL2, local2);
 
 		vec4_t local3;
@@ -1691,7 +1823,7 @@ void RB_SetMaterialBasedProperties(shaderProgram_t *sp, shaderStage_t *pStage, i
 		vec4_t local4;
 		float dayNightGlowFactor = mix(MAP_GLOW_MULTIPLIER, MAP_GLOW_MULTIPLIER_NIGHT, RB_NightScale());
 		float glowPower = (backEnd.currentEntity == &tr.worldEntity) ? r_glowStrength->value * tess.shader->glowStrength * dayNightGlowFactor * pStage->glowStrength : r_glowStrength->value * tess.shader->glowStrength * pStage->glowStrength;
-		VectorSet4(local4, (float)stageNum, glowPower, r_showsplat->value, max(tess.shader->glowVibrancy, pStage->glowVibrancy) * r_glowVibrancy->value);
+		VectorSet4(local4, /*(float)stageNum*/SPLATMAP_CONTROL_SCALE, glowPower, r_showsplat->value, max(tess.shader->glowVibrancy, pStage->glowVibrancy) * r_glowVibrancy->value);
 		GLSL_SetUniformVec4(sp, UNIFORM_LOCAL4, local4);
 
 		vec4_t local5;
@@ -2003,6 +2135,8 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 	int useTesselation = 0;
 	qboolean isWorld = qfalse;
 	qboolean isWater = qfalse;
+	qboolean isFakeGrass = qfalse;
+	qboolean isGrassPatches = qfalse;
 	qboolean isGrass = qfalse;
 	qboolean isGrass2 = qfalse;
 	qboolean isGrass3 = qfalse;
@@ -2052,9 +2186,23 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 	{
 		IS_DEPTH_PASS = 1;
 
+#if 0
+		if (r_foliage->integer
+			&& r_foliageShadows->integer
+			&& GRASS_PATCHES_ENABLED
+			&& (glState.currentFBO == tr.sunShadowFbo[0] || glState.currentFBO == tr.sunShadowFbo[1])
+			&& (RB_ShouldUseGeometryGrassPatches(tess.shader->materialType)))
+		{
+			if (r_foliageShadows->integer > 1 || GRASS_PATCHES_HEIGHT * GRASS_PATCHES_SIZE_MULTIPLIER_COMMON >= 20)
+			{// Only when foliageShadows >= 2 will we do them on grass... (unless the grass is fairly large)
+				isGrassPatches = qtrue;
+			}
+		}
+
 		if (r_foliage->integer
 			&& r_foliageShadows->integer
 			&& GRASS_ENABLED
+			&& (glState.currentFBO == tr.sunShadowFbo[0] || glState.currentFBO == tr.sunShadowFbo[1])
 			&& (tess.shader->isGrass || RB_ShouldUseGeometryGrass(tess.shader->materialType)))
 		{
 			if (r_foliageShadows->integer > 1 || GRASS_HEIGHT * GRASS_SIZE_MULTIPLIER_COMMON >= 20)
@@ -2068,6 +2216,7 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 		if (r_foliage->integer
 			&& r_foliageShadows->integer
 			&& GRASS2_ENABLED
+			&& (glState.currentFBO == tr.sunShadowFbo[0] || glState.currentFBO == tr.sunShadowFbo[1])
 			&& RB_ShouldUseGeometryGrass2(tess.shader->materialType))
 		{
 			if (r_foliageShadows->integer > 1 || GRASS2_HEIGHT * GRASS2_SIZE_MULTIPLIER_COMMON >= 20)
@@ -2079,6 +2228,7 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 		if (r_foliage->integer
 			&& r_foliageShadows->integer
 			&& GRASS3_ENABLED
+			&& (glState.currentFBO == tr.sunShadowFbo[0] || glState.currentFBO == tr.sunShadowFbo[1])
 			&& RB_ShouldUseGeometryGrass3(tess.shader->materialType))
 		{
 			if (r_foliageShadows->integer > 1 || GRASS3_HEIGHT * GRASS3_SIZE_MULTIPLIER_COMMON >= 20)
@@ -2090,6 +2240,7 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 		if (r_foliage->integer
 			&& r_foliageShadows->integer
 			&& GRASS4_ENABLED
+			&& (glState.currentFBO == tr.sunShadowFbo[0] || glState.currentFBO == tr.sunShadowFbo[1])
 			&& RB_ShouldUseGeometryGrass4(tess.shader->materialType))
 		{
 			if (r_foliageShadows->integer > 1 || GRASS4_HEIGHT * GRASS4_SIZE_MULTIPLIER_COMMON >= 20)
@@ -2101,6 +2252,7 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 		if (r_foliage->integer
 			&& r_foliageShadows->integer
 			&& FOLIAGE_ENABLED
+			&& (glState.currentFBO == tr.sunShadowFbo[0] || glState.currentFBO == tr.sunShadowFbo[1])
 			&& (tess.shader->isGroundFoliage || RB_ShouldUseGeometryFoliage(tess.shader->materialType)))
 		{
 			if (r_foliageShadows->integer > 1)
@@ -2110,10 +2262,12 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 
 			tess.shader->isGroundFoliage = qtrue; // Cache to speed up future checks...
 		}
+#endif
 
 		if (r_foliage->integer
 			&& r_foliageShadows->integer
 			&& VINES_ENABLED
+			//&& (glState.currentFBO == tr.sunShadowFbo[0] || glState.currentFBO == tr.sunShadowFbo[1])
 			&& RB_ShouldUseGeometryVines(tess.shader->materialType))
 		{
 			isVines = qtrue;
@@ -2126,10 +2280,22 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 		|| (tr.viewParms.flags & VPF_SKYCUBEDAY)
 		|| (tr.viewParms.flags & VPF_SKYCUBENIGHT))
 	{
+#if 0
+		if (r_foliage->integer
+			&& r_foliageShadows->integer
+			&& GRASS_PATCHES_ENABLED
+			&& ((tr.viewParms.flags & VPF_DEPTHSHADOW) || (tr.viewParms.flags & VPF_SHADOWPASS))
+			&& (glState.currentFBO == tr.sunShadowFbo[0] || glState.currentFBO == tr.sunShadowFbo[1])
+			&& (RB_ShouldUseGeometryGrassPatches(tess.shader->materialType)))
+		{
+			isGrassPatches = qtrue;
+		}
+
 		if (r_foliage->integer
 			&& r_foliageShadows->integer
 			&& GRASS_ENABLED
 			&& ((tr.viewParms.flags & VPF_DEPTHSHADOW) || (tr.viewParms.flags & VPF_SHADOWPASS))
+			&& (glState.currentFBO == tr.sunShadowFbo[0] || glState.currentFBO == tr.sunShadowFbo[1])
 			&& (tess.shader->isGrass || RB_ShouldUseGeometryGrass(tess.shader->materialType)))
 		{
 			isGrass = qtrue;
@@ -2140,6 +2306,7 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 			&& r_foliageShadows->integer
 			&& GRASS2_ENABLED
 			&& ((tr.viewParms.flags & VPF_DEPTHSHADOW) || (tr.viewParms.flags & VPF_SHADOWPASS))
+			&& (glState.currentFBO == tr.sunShadowFbo[0] || glState.currentFBO == tr.sunShadowFbo[1])
 			&& RB_ShouldUseGeometryGrass2(tess.shader->materialType))
 		{
 			isGrass2 = qtrue;
@@ -2149,6 +2316,7 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 			&& r_foliageShadows->integer
 			&& GRASS3_ENABLED
 			&& ((tr.viewParms.flags & VPF_DEPTHSHADOW) || (tr.viewParms.flags & VPF_SHADOWPASS))
+			&& (glState.currentFBO == tr.sunShadowFbo[0] || glState.currentFBO == tr.sunShadowFbo[1])
 			&& RB_ShouldUseGeometryGrass3(tess.shader->materialType))
 		{
 			isGrass3 = qtrue;
@@ -2158,6 +2326,7 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 			&& r_foliageShadows->integer
 			&& GRASS4_ENABLED
 			&& ((tr.viewParms.flags & VPF_DEPTHSHADOW) || (tr.viewParms.flags & VPF_SHADOWPASS))
+			&& (glState.currentFBO == tr.sunShadowFbo[0] || glState.currentFBO == tr.sunShadowFbo[1])
 			&& RB_ShouldUseGeometryGrass4(tess.shader->materialType))
 		{
 			isGrass4 = qtrue;
@@ -2167,16 +2336,19 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 			&& r_foliageShadows->integer
 			&& FOLIAGE_ENABLED
 			&& ((tr.viewParms.flags & VPF_DEPTHSHADOW) || (tr.viewParms.flags & VPF_SHADOWPASS))
+			&& (glState.currentFBO == tr.sunShadowFbo[0] || glState.currentFBO == tr.sunShadowFbo[1])
 			&& (tess.shader->isGroundFoliage || RB_ShouldUseGeometryFoliage(tess.shader->materialType)))
 		{
 			isGroundFoliage = qtrue;
 			tess.shader->isGroundFoliage = qtrue; // Cache to speed up future checks...
 		}
+#endif
 
 		if (r_foliage->integer
 			&& r_foliageShadows->integer
 			&& VINES_ENABLED
 			&& ((tr.viewParms.flags & VPF_DEPTHSHADOW) || (tr.viewParms.flags & VPF_SHADOWPASS))
+			//&& (glState.currentFBO == tr.sunShadowFbo[0] || glState.currentFBO == tr.sunShadowFbo[1])
 			&& RB_ShouldUseGeometryVines(tess.shader->materialType))
 		{
 			isVines = qtrue;
@@ -2186,10 +2358,18 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 #endif
 	{
 		if (r_foliage->integer
+			&& GRASS_PATCHES_ENABLED
+			&& (RB_ShouldUseGeometryGrassPatches(tess.shader->materialType)))
+		{
+			isGrassPatches = qtrue;
+		}
+
+		if (r_foliage->integer
 			&& GRASS_ENABLED
 			&& (tess.shader->isGrass || RB_ShouldUseGeometryGrass(tess.shader->materialType)))
 		{
 			isGrass = qtrue;
+			isFakeGrass = qtrue;
 			tess.shader->isGrass = qtrue; // Cache to speed up future checks...
 		}
 
@@ -2240,6 +2420,10 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 	if (backEnd.currentEntity == &backEnd.entity2D)
 	{
 
+	}
+	else if (!isGrassPatches && backEnd.renderPass == RENDERPASS_GRASS_PATCHES)
+	{
+		return;
 	}
 	else if (!isGrass && backEnd.renderPass == RENDERPASS_GRASS)
 	{
@@ -2345,7 +2529,6 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 		int stateBits;
 		colorGen_t forceRGBGen = CGEN_BAD;
 		alphaGen_t forceAlphaGen = AGEN_IDENTITY;
-		qboolean multiPass = qfalse;
 		qboolean lightMapsDisabled = qfalse;
 		qboolean isEmissiveBlackStage = qfalse;
 
@@ -2540,7 +2723,6 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 				sp = &tr.waterPostForwardShader;
 				pStage->glslShaderGroup = &tr.waterPostForwardShader;
 				isWater = qtrue;
-				multiPass = qfalse;
 			}
 			else
 			{// Only do one stage on GLSL water...
@@ -2560,7 +2742,6 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 				sp = &tr.waterPostForwardShader;
 				pStage->glslShaderGroup = &tr.waterPostForwardShader;
 				isGlass = qtrue;
-				multiPass = qfalse;
 			}
 			else
 			{// Only do one stage on GLSL water...
@@ -2580,7 +2761,6 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 				sp = &tr.waterPostForwardShader;
 				pStage->glslShaderGroup = &tr.waterPostForwardShader;
 				isPush = qtrue;
-				multiPass = qfalse;
 				//ri->Printf(PRINT_ALL, "Doing force push shader.\n");
 			}
 			else
@@ -2601,7 +2781,6 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 				sp = &tr.waterPostForwardShader;
 				pStage->glslShaderGroup = &tr.waterPostForwardShader;
 				isPull = qtrue;
-				multiPass = qfalse;
 			}
 			else
 			{// Only do one stage on GLSL water...
@@ -2621,7 +2800,6 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 				sp = &tr.waterPostForwardShader;
 				pStage->glslShaderGroup = &tr.waterPostForwardShader;
 				isCloak = qtrue;
-				multiPass = qfalse;
 			}
 			else
 			{// Only do one stage on GLSL water...
@@ -2630,7 +2808,7 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 
 			GLSL_BindProgram(sp);
 		}
-		else if (r_proceduralSun->integer && tess.shader == tr.sunShader)
+		/*else if (r_proceduralSun->integer && tess.shader == tr.sunShader)
 		{// Special case for procedural sun...
 			if (IS_DEPTH_PASS) return;
 			if (stage > 0) return;
@@ -2639,10 +2817,9 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 			GLSL_SetUniformFloat(sp, UNIFORM_TIME, tess.shaderTime);
 			isGrass = qfalse;
 			isGroundFoliage = qfalse;
-			multiPass = qfalse;
 
 			GLSL_BindProgram(sp);
-		}
+		}*/
 		else if (tess.shader->materialType == MATERIAL_MENU_BACKGROUND)
 		{
 			// Special case for procedural menu background...
@@ -2653,7 +2830,6 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 			GLSL_SetUniformFloat(sp, UNIFORM_TIME, tess.shaderTime);
 			isGrass = qfalse;
 			isGroundFoliage = qfalse;
-			multiPass = qfalse;
 
 			GLSL_BindProgram(sp);
 
@@ -2668,7 +2844,6 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 			GLSL_SetUniformFloat(sp, UNIFORM_TIME, tess.shaderTime);
 			isGrass = qfalse;
 			isGroundFoliage = qfalse;
-			multiPass = qfalse;
 
 			GLSL_BindProgram(sp);
 		}
@@ -2681,7 +2856,6 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 			GLSL_SetUniformFloat(sp, UNIFORM_TIME, tess.shaderTime);
 			isGrass = qfalse;
 			isGroundFoliage = qfalse;
-			multiPass = qfalse;
 
 			GLSL_BindProgram(sp);
 		}
@@ -2694,7 +2868,6 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 			GLSL_SetUniformFloat(sp, UNIFORM_TIME, tess.shaderTime);
 			isGrass = qfalse;
 			isGroundFoliage = qfalse;
-			multiPass = qfalse;
 
 			GLSL_BindProgram(sp);
 		}
@@ -2707,7 +2880,6 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 			GLSL_SetUniformFloat(sp, UNIFORM_TIME, tess.shaderTime);
 			isGrass = qfalse;
 			isGroundFoliage = qfalse;
-			multiPass = qfalse;
 
 			GLSL_BindProgram(sp);
 		}
@@ -2720,7 +2892,6 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 			GLSL_SetUniformFloat(sp, UNIFORM_TIME, tess.shaderTime);
 			isGrass = qfalse;
 			isGroundFoliage = qfalse;
-			multiPass = qfalse;
 
 			GLSL_BindProgram(sp);
 		}
@@ -2733,7 +2904,14 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 			GLSL_SetUniformFloat(sp, UNIFORM_TIME, tess.shaderTime);
 			isGrass = qfalse;
 			isGroundFoliage = qfalse;
-			multiPass = qfalse;
+
+			GLSL_BindProgram(sp);
+		}
+		else if (isGrassPatches && backEnd.renderPass == RENDERPASS_GRASS_PATCHES)
+		{// Special extra pass stuff for grass...
+			if (stage > 0) return;
+
+			sp = &tr.grassPatchesShader;
 
 			GLSL_BindProgram(sp);
 		}
@@ -2747,8 +2925,6 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 				sp = &tr.grassShader[1];
 
 			GLSL_BindProgram(sp);
-
-			multiPass = qfalse;
 		}
 		else if (isGrass2 && backEnd.renderPass == RENDERPASS_GRASS2)
 		{// Special extra pass stuff for grass...
@@ -2760,8 +2936,6 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 				sp = &tr.grassShader[1];
 
 			GLSL_BindProgram(sp);
-
-			multiPass = qfalse;
 		}
 		else if (isGrass3 && backEnd.renderPass == RENDERPASS_GRASS3)
 		{// Special extra pass stuff for grass...
@@ -2773,8 +2947,6 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 				sp = &tr.grassShader[1];
 
 			GLSL_BindProgram(sp);
-
-			multiPass = qfalse;
 		}
 		else if (isGrass4 && backEnd.renderPass == RENDERPASS_GRASS4)
 		{// Special extra pass stuff for grass...
@@ -2786,8 +2958,6 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 				sp = &tr.grassShader[1];
 
 			GLSL_BindProgram(sp);
-
-			multiPass = qfalse;
 		}
 		else if (isGroundFoliage && backEnd.renderPass == RENDERPASS_GROUNDFOLIAGE)
 		{
@@ -2795,7 +2965,6 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 
 			sp = &tr.foliageShader;
 			GLSL_BindProgram(sp);
-			multiPass = qfalse;
 		}
 		else if (isVines && backEnd.renderPass == RENDERPASS_VINES)
 		{
@@ -2803,7 +2972,6 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 
 			sp = &tr.vinesShader;
 			GLSL_BindProgram(sp);
-			multiPass = qfalse;
 		}
 		else if (isMist && backEnd.renderPass == RENDERPASS_MIST)
 		{
@@ -2811,7 +2979,6 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 
 			sp = &tr.mistShader;
 			GLSL_BindProgram(sp);
-			multiPass = qfalse;
 		}
 		else if ((IS_DEPTH_PASS || (tr.viewParms.flags & VPF_CUBEMAP))
 			&& !((tr.viewParms.flags & VPF_EMISSIVEMAP) && (pStage->glow || pStage->glowMapped)))
@@ -3181,42 +3348,51 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 				GLSL_SetUniformVec4(sp, UNIFORM_SETTINGS0, vec);
 
 				float blendMethod = 0.0;
+				float blendMethod2 = useSkeletalAnim;
 
+				if (sp == &tr.lightAllSplatShader[0] || sp == &tr.lightAllSplatShader[1] || sp == &tr.lightAllSplatShader[2] || sp == &tr.lightAllSplatShader[3])
+				{
+					blendMethod2 = SPLATMAP_SCALE_WATEREDGE1;
+					blendMethod = SPLATMAP_SCALE_WATEREDGE2;
+				}
+				else
+				{
 #if 1
-				/*if (stateBits & GLS_DSTBLEND_ONE_MINUS_SRC_COLOR)
-				{
-					blendMethod = 1.0;
+					/*if (stateBits & GLS_DSTBLEND_ONE_MINUS_SRC_COLOR)
+					{
+						blendMethod = 1.0;
 
-					stateBits &= ~GLS_SRCBLEND_BITS;
-					stateBits &= ~GLS_DSTBLEND_BITS;
-					stateBits |= GLS_SRCBLEND_ZERO | GLS_DSTBLEND_ONE;
+						stateBits &= ~GLS_SRCBLEND_BITS;
+						stateBits &= ~GLS_DSTBLEND_BITS;
+						stateBits |= GLS_SRCBLEND_ZERO | GLS_DSTBLEND_ONE;
 
-				}
-				else*/ if (stateBits & GLS_DSTBLEND_SRC_COLOR)
-				{
-					blendMethod = 2.0;
+					}
+					else*/ if (stateBits & GLS_DSTBLEND_SRC_COLOR)
+					{
+						blendMethod = 2.0;
 
-					stateBits &= ~GLS_SRCBLEND_BITS;
-					stateBits &= ~GLS_DSTBLEND_BITS;
-					stateBits |= GLS_SRCBLEND_ZERO | GLS_DSTBLEND_ONE;
-				}
-				/*else if (stateBits & GLS_DSTBLEND_ONE)
-				{
-					blendMethod = 3.0;
+						stateBits &= ~GLS_SRCBLEND_BITS;
+						stateBits &= ~GLS_DSTBLEND_BITS;
+						stateBits |= GLS_SRCBLEND_ZERO | GLS_DSTBLEND_ONE;
+					}
+					/*else if (stateBits & GLS_DSTBLEND_ONE)
+					{
+						blendMethod = 3.0;
 
-					stateBits &= ~GLS_SRCBLEND_BITS;
-					stateBits &= ~GLS_DSTBLEND_BITS;
-					stateBits |= GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE;
-				}*/
-				else if (/*(stateBits & GLS_SRCBLEND_ONE) &&*/ (stateBits & GLS_DSTBLEND_ONE))
-				{
-					blendMethod = 4.0;
-				}
+						stateBits &= ~GLS_SRCBLEND_BITS;
+						stateBits &= ~GLS_DSTBLEND_BITS;
+						stateBits |= GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE;
+					}*/
+					else if (/*(stateBits & GLS_SRCBLEND_ONE) &&*/ (stateBits & GLS_DSTBLEND_ONE))
+					{
+						blendMethod = 4.0;
+					}
 #endif
+				}
 
 				VectorSet4(vec,
 					useVertexAnim,
-					useSkeletalAnim,
+					blendMethod2 /*useSkeletalAnim*/,
 					blendMethod,
 					is2D ? 1.0 : 0.0);
 				GLSL_SetUniformVec4(sp, UNIFORM_SETTINGS1, vec);
@@ -3323,6 +3499,20 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 #endif //__CHEAP_VERTS__
 			}
 
+			if (pStage->glow)
+			{
+				if (r_glowMultiplierR->value != 1.0 || r_glowMultiplierG->value != 1.0 || r_glowMultiplierB->value != 1.0 || r_glowMultiplierA->value != 1.0)
+				{
+					vec4_t glowMultiplierRGBA;
+					VectorSet4(glowMultiplierRGBA, r_glowMultiplierR->value, r_glowMultiplierG->value, r_glowMultiplierB->value, r_glowMultiplierA->value);
+					GLSL_SetUniformVec4(sp, UNIFORM_GLOWMULTIPLIER, glowMultiplierRGBA);
+				}
+				else
+				{
+					GLSL_SetUniformVec4(sp, UNIFORM_GLOWMULTIPLIER, pStage->glowMultiplierRGBA);
+				}
+			}
+
 			// UQ1: Used by both generic and lightall...
 			RB_SetStageImageDimensions(sp, pStage);
 			RB_SetMaterialBasedProperties(sp, pStage, stage, IS_DEPTH_PASS);
@@ -3419,7 +3609,7 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 		// Texture bindings...
 		//
 
-		if (isGrass && backEnd.renderPass == RENDERPASS_GRASS)
+		if (isGrassPatches && backEnd.renderPass == RENDERPASS_GRASS_PATCHES)
 		{// Special extra pass stuff for grass...
 			stateBits = GLS_DEPTHMASK_TRUE | GLS_DEPTHFUNC_LESS | GLS_SRCBLEND_ONE | GLS_DSTBLEND_ZERO | GLS_ATEST_GT_0;
 
@@ -3439,28 +3629,20 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 			GLSL_SetUniformVec3xX(sp, UNIFORM_HUMANOIDORIGINS, backEnd.humanoidOrigins, backEnd.humanoidOriginsNum);
 #endif //__HUMANOIDS_BEND_GRASS__
 
-			if (GRASS_UNDERWATER_ONLY)
+			if (sp->isBindless)
 			{
-				GL_BindToTMU(tr.seaGrassAliasImage[0], TB_WATER_EDGE_MAP);
-
-				{
-					vec2_t dimensions;
-					dimensions[0] = tr.seaGrassAliasImage[0]->width;
-					dimensions[1] = tr.seaGrassAliasImage[0]->height;
-					GLSL_SetUniformVec2(sp, UNIFORM_DIMENSIONS, dimensions);
-				}
+				GLSL_SetBindlessTexture(sp, UNIFORM_DIFFUSEMAP, &tr.grassPatchesAliasImage, 0);
 			}
 			else
 			{
-				GL_BindToTMU(tr.grassAliasImage[0], TB_DIFFUSEMAP);
-				GL_BindToTMU(tr.seaGrassAliasImage[0], TB_WATER_EDGE_MAP);
+				GL_BindToTMU(tr.grassPatchesAliasImage, TB_DIFFUSEMAP);
+			}
 
-				{
-					vec2_t dimensions;
-					dimensions[0] = tr.grassAliasImage[0]->width;
-					dimensions[1] = tr.grassAliasImage[0]->height;
-					GLSL_SetUniformVec2(sp, UNIFORM_DIMENSIONS, dimensions);
-				}
+			{
+				vec2_t dimensions;
+				dimensions[0] = tr.grassPatchesAliasImage->width;
+				dimensions[1] = tr.grassPatchesAliasImage->height;
+				GLSL_SetUniformVec2(sp, UNIFORM_DIMENSIONS, dimensions);
 			}
 
 			float TERRAIN_TESS_OFFSET = 0.0;
@@ -3472,7 +3654,6 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 				&& r_terrainTessellationMax->value >= 2.0)
 			{// When tessellating terrain, we need to drop the grasses down lower to allow for the offset...
 				TERRAIN_TESS_OFFSET = TERRAIN_TESSELLATION_OFFSET;
-				//GL_BindToTMU(tr.tessellationMapImage, TB_HEIGHTMAP);
 
 				if (useTesselation == 3)
 				{
@@ -3481,20 +3662,34 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 			}
 
 			vec4_t l10;
-			VectorSet4(l10, GRASS_DISTANCE, TERRAIN_TESS_OFFSET, GRASS_DENSITY, GRASS_TYPE_UNIFORMALITY);
+			VectorSet4(l10, GRASS_PATCHES_DISTANCE, TERRAIN_TESS_OFFSET, GRASS_PATCHES_DENSITY, GRASS_PATCHES_TYPE_UNIFORMALITY);
 			GLSL_SetUniformVec4(sp, UNIFORM_LOCAL10, l10);
 
 			vec4_t l11;
-			VectorSet4(l11, GRASS_WIDTH_REPEATS, GRASS_MAX_SLOPE, GRASS_TYPE_UNIFORMALITY_SCALER, GRASS_RARE_PATCHES_ONLY ? 1.0 : 0.0);
+			VectorSet4(l11, GRASS_PATCHES_WIDTH_REPEATS, GRASS_PATCHES_MAX_SLOPE, GRASS_PATCHES_TYPE_UNIFORMALITY_SCALER, GRASS_PATCHES_RARE_PATCHES_ONLY ? 1.0 : 0.0);
 			GLSL_SetUniformVec4(sp, UNIFORM_LOCAL11, l11);
 
-			if (tr.roadsMapImage != tr.blackImage)
+			if (sp->isBindless)
 			{
-				GL_BindToTMU(tr.roadsMapImage, TB_ROADSCONTROLMAP);
+				if (tr.roadsMapImage && tr.roadsMapImage != tr.blackImage)
+				{
+					GLSL_SetBindlessTexture(sp, UNIFORM_ROADSCONTROLMAP, &tr.roadsMapImage, 0);
+				}
+				else
+				{
+					GLSL_SetBindlessTexture(sp, UNIFORM_ROADSCONTROLMAP, &tr.blackImage, 0);
+				}
 			}
 			else
 			{
-				GL_BindToTMU(tr.blackImage, TB_ROADSCONTROLMAP);
+				if (tr.roadsMapImage && tr.roadsMapImage != tr.blackImage)
+				{
+					GL_BindToTMU(tr.roadsMapImage, TB_ROADSCONTROLMAP);
+				}
+				else
+				{
+					GL_BindToTMU(tr.blackImage, TB_ROADSCONTROLMAP);
+				}
 			}
 
 			{
@@ -3529,7 +3724,144 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 				GLSL_SetUniformVec4(sp, UNIFORM_SETTINGS5, vec);
 			}
 
-			//GL_BindToTMU( tr.defaultGrassMapImage, TB_SPLATCONTROLMAP );
+			GL_Cull(CT_TWO_SIDED);
+		}
+		else if (isGrass && backEnd.renderPass == RENDERPASS_GRASS)
+		{// Special extra pass stuff for grass...
+			stateBits = GLS_DEPTHMASK_TRUE | GLS_DEPTHFUNC_LESS | GLS_SRCBLEND_ONE | GLS_DSTBLEND_ZERO | GLS_ATEST_GT_0;
+
+			RB_SetMaterialBasedProperties(sp, pStage, stage, qfalse);
+
+			GLSL_SetUniformFloat(sp, UNIFORM_TIME, tess.shaderTime);
+
+			GLSL_SetUniformMatrix16(sp, UNIFORM_MODELVIEWPROJECTIONMATRIX, glState.modelviewProjection);
+			//GLSL_SetUniformMatrix16(sp, UNIFORM_MODELMATRIX, backEnd.ori.modelMatrix);
+
+			GLSL_SetUniformVec3(sp, UNIFORM_VIEWORIGIN, backEnd.viewParms.ori.origin);
+
+			GLSL_SetUniformVec3(sp, UNIFORM_PLAYERORIGIN, backEnd.localPlayerOrigin);
+
+#ifdef __HUMANOIDS_BEND_GRASS__ // Bend grass for all close player/NPCs...
+			GLSL_SetUniformInt(sp, UNIFORM_HUMANOIDORIGINSNUM, backEnd.humanoidOriginsNum);
+			GLSL_SetUniformVec3xX(sp, UNIFORM_HUMANOIDORIGINS, backEnd.humanoidOrigins, backEnd.humanoidOriginsNum);
+#endif //__HUMANOIDS_BEND_GRASS__
+
+			if (GRASS_UNDERWATER_ONLY)
+			{
+				if (sp->isBindless)
+				{
+					GLSL_SetBindlessTexture(sp, UNIFORM_WATER_EDGE_MAP, &tr.seaGrassAliasImage[0], 0);
+				}
+				else
+				{
+					GL_BindToTMU(tr.seaGrassAliasImage[0], UNIFORM_WATER_EDGE_MAP);
+				}
+
+				{
+					vec2_t dimensions;
+					dimensions[0] = tr.seaGrassAliasImage[0]->width;
+					dimensions[1] = tr.seaGrassAliasImage[0]->height;
+					GLSL_SetUniformVec2(sp, UNIFORM_DIMENSIONS, dimensions);
+				}
+			}
+			else
+			{
+				if (sp->isBindless)
+				{
+					GLSL_SetBindlessTexture(sp, UNIFORM_DIFFUSEMAP, &tr.grassAliasImage[0], 0);
+					GLSL_SetBindlessTexture(sp, UNIFORM_WATER_EDGE_MAP, &tr.seaGrassAliasImage[0], 0);
+				}
+				else
+				{
+					GL_BindToTMU(tr.grassAliasImage[0], TB_DIFFUSEMAP);
+					GL_BindToTMU(tr.seaGrassAliasImage[0], TB_WATER_EDGE_MAP);
+				}
+
+				{
+					vec2_t dimensions;
+					dimensions[0] = tr.grassAliasImage[0]->width;
+					dimensions[1] = tr.grassAliasImage[0]->height;
+					GLSL_SetUniformVec2(sp, UNIFORM_DIMENSIONS, dimensions);
+				}
+			}
+
+			float TERRAIN_TESS_OFFSET = 0.0;
+
+			// Check if this is grass on a tessellated terrain, if so, we want to lower the verts in the vert shader by the maximum possible tessellation height...
+			if (TERRAIN_TESSELLATION_ENABLED
+				&& r_tessellation->integer
+				&& r_terrainTessellation->integer
+				&& r_terrainTessellationMax->value >= 2.0)
+			{// When tessellating terrain, we need to drop the grasses down lower to allow for the offset...
+				TERRAIN_TESS_OFFSET = TERRAIN_TESSELLATION_OFFSET;
+				if (useTesselation == 3)
+				{
+					TERRAIN_TESS_OFFSET = TERRAIN_TESSELLATION_3D_OFFSET[2];
+				}
+			}
+
+			vec4_t l10;
+			VectorSet4(l10, GRASS_DISTANCE, TERRAIN_TESS_OFFSET, GRASS_DENSITY, GRASS_TYPE_UNIFORMALITY);
+			GLSL_SetUniformVec4(sp, UNIFORM_LOCAL10, l10);
+
+			vec4_t l11;
+			VectorSet4(l11, GRASS_WIDTH_REPEATS, GRASS_MAX_SLOPE, GRASS_TYPE_UNIFORMALITY_SCALER, GRASS_RARE_PATCHES_ONLY ? 1.0 : 0.0);
+			GLSL_SetUniformVec4(sp, UNIFORM_LOCAL11, l11);
+
+			if (sp->isBindless)
+			{
+				if (tr.roadsMapImage && tr.roadsMapImage != tr.blackImage)
+				{
+					GLSL_SetBindlessTexture(sp, UNIFORM_ROADSCONTROLMAP, &tr.roadsMapImage, 0);
+				}
+				else
+				{
+					GLSL_SetBindlessTexture(sp, UNIFORM_ROADSCONTROLMAP, &tr.roadsMapImage, 0);
+				}
+			}
+			else
+			{
+				if (tr.roadsMapImage && tr.roadsMapImage != tr.blackImage)
+				{
+					GL_BindToTMU(tr.roadsMapImage, TB_ROADSCONTROLMAP);
+				}
+				else
+				{
+					GL_BindToTMU(tr.blackImage, TB_ROADSCONTROLMAP);
+				}
+			}
+
+			{
+				vec4_t loc;
+				VectorSet4(loc, MAP_INFO_MINS[0], MAP_INFO_MINS[1], MAP_INFO_MINS[2], 0.0);
+				GLSL_SetUniformVec4(sp, UNIFORM_MINS, loc);
+
+				VectorSet4(loc, MAP_INFO_MAXS[0], MAP_INFO_MAXS[1], MAP_INFO_MAXS[2], 0.0);
+				GLSL_SetUniformVec4(sp, UNIFORM_MAXS, loc);
+
+				VectorSet4(loc, MAP_INFO_SIZE[0], MAP_INFO_SIZE[1], MAP_INFO_SIZE[2], 0.0);
+				GLSL_SetUniformVec4(sp, UNIFORM_MAPINFO, loc);
+			}
+
+			{
+				vec4_t vec;
+				VectorSet4(vec,
+					IS_DEPTH_PASS ? 1.0 : 0.0,
+					0.0,
+					0.0,
+					LEAF_ALPHA_MULTIPLIER);
+				GLSL_SetUniformVec4(sp, UNIFORM_SETTINGS1, vec);
+			}
+
+			{
+				vec4_t vec;
+				VectorSet4(vec,
+					MAP_COLOR_SWITCH_RG ? 1.0 : 0.0,
+					MAP_COLOR_SWITCH_RB ? 1.0 : 0.0,
+					MAP_COLOR_SWITCH_GB ? 1.0 : 0.0,
+					0.0);
+				GLSL_SetUniformVec4(sp, UNIFORM_SETTINGS5, vec);
+			}
 
 			GL_Cull(CT_TWO_SIDED);
 		}
@@ -3555,7 +3887,14 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 
 			if (GRASS_UNDERWATER_ONLY)
 			{
-				GL_BindToTMU(tr.seaGrassAliasImage[1], TB_WATER_EDGE_MAP);
+				if (sp->isBindless)
+				{
+					GLSL_SetBindlessTexture(sp, UNIFORM_WATER_EDGE_MAP, &tr.seaGrassAliasImage[1], 0);
+				}
+				else
+				{
+					GL_BindToTMU(tr.seaGrassAliasImage[1], TB_WATER_EDGE_MAP);
+				}
 
 				{
 					vec2_t dimensions;
@@ -3566,8 +3905,16 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 			}
 			else
 			{
-				GL_BindToTMU(tr.grassAliasImage[1], TB_DIFFUSEMAP);
-				GL_BindToTMU(tr.seaGrassAliasImage[1], TB_WATER_EDGE_MAP);
+				if (sp->isBindless)
+				{
+					GLSL_SetBindlessTexture(sp, UNIFORM_DIFFUSEMAP, &tr.grassAliasImage[1], 0);
+					GLSL_SetBindlessTexture(sp, UNIFORM_WATER_EDGE_MAP, &tr.seaGrassAliasImage[1], 0);
+				}
+				else
+				{
+					GL_BindToTMU(tr.grassAliasImage[1], UNIFORM_DIFFUSEMAP);
+					GL_BindToTMU(tr.seaGrassAliasImage[1], UNIFORM_WATER_EDGE_MAP);
+				}
 
 				{
 					vec2_t dimensions;
@@ -3586,7 +3933,6 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 				&& r_terrainTessellationMax->value >= 2.0)
 			{// When tessellating terrain, we need to drop the grasses down lower to allow for the offset...
 				TERRAIN_TESS_OFFSET = TERRAIN_TESSELLATION_OFFSET;
-				//GL_BindToTMU(tr.tessellationMapImage, TB_HEIGHTMAP);
 
 				if (useTesselation == 3)
 				{
@@ -3602,13 +3948,27 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 			VectorSet4(l11, GRASS2_WIDTH_REPEATS, GRASS2_MAX_SLOPE, GRASS2_TYPE_UNIFORMALITY_SCALER, GRASS2_RARE_PATCHES_ONLY ? 1.0 : 0.0);
 			GLSL_SetUniformVec4(sp, UNIFORM_LOCAL11, l11);
 
-			if (tr.roadsMapImage != tr.blackImage)
+			if (sp->isBindless)
 			{
-				GL_BindToTMU(tr.roadsMapImage, TB_ROADSCONTROLMAP);
+				if (tr.roadsMapImage && tr.roadsMapImage != tr.blackImage)
+				{
+					GLSL_SetBindlessTexture(sp, UNIFORM_ROADSCONTROLMAP, &tr.roadsMapImage, 0);
+				}
+				else
+				{
+					GLSL_SetBindlessTexture(sp, UNIFORM_ROADSCONTROLMAP, &tr.roadsMapImage, 0);
+				}
 			}
 			else
 			{
-				GL_BindToTMU(tr.blackImage, TB_ROADSCONTROLMAP);
+				if (tr.roadsMapImage && tr.roadsMapImage != tr.blackImage)
+				{
+					GL_BindToTMU(tr.roadsMapImage, TB_ROADSCONTROLMAP);
+				}
+				else
+				{
+					GL_BindToTMU(tr.blackImage, TB_ROADSCONTROLMAP);
+				}
 			}
 
 			{
@@ -3667,7 +4027,14 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 
 			if (GRASS_UNDERWATER_ONLY)
 			{
-				GL_BindToTMU(tr.seaGrassAliasImage[2], TB_WATER_EDGE_MAP);
+				if (sp->isBindless)
+				{
+					GLSL_SetBindlessTexture(sp, UNIFORM_WATER_EDGE_MAP, &tr.seaGrassAliasImage[2], 0);
+				}
+				else
+				{
+					GL_BindToTMU(tr.seaGrassAliasImage[2], TB_WATER_EDGE_MAP);
+				}
 
 				{
 					vec2_t dimensions;
@@ -3678,8 +4045,16 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 			}
 			else
 			{
-				GL_BindToTMU(tr.grassAliasImage[2], TB_DIFFUSEMAP);
-				GL_BindToTMU(tr.seaGrassAliasImage[2], TB_WATER_EDGE_MAP);
+				if (sp->isBindless)
+				{
+					GLSL_SetBindlessTexture(sp, UNIFORM_DIFFUSEMAP, &tr.grassAliasImage[2], 0);
+					GLSL_SetBindlessTexture(sp, UNIFORM_WATER_EDGE_MAP, &tr.seaGrassAliasImage[2], 0);
+				}
+				else
+				{
+					GL_BindToTMU(tr.grassAliasImage[2], TB_DIFFUSEMAP);
+					GL_BindToTMU(tr.seaGrassAliasImage[2], TB_WATER_EDGE_MAP);
+				}
 
 				{
 					vec2_t dimensions;
@@ -3698,8 +4073,6 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 				&& r_terrainTessellationMax->value >= 2.0)
 			{// When tessellating terrain, we need to drop the grasses down lower to allow for the offset...
 				TERRAIN_TESS_OFFSET = TERRAIN_TESSELLATION_OFFSET;
-				//GL_BindToTMU(tr.tessellationMapImage, TB_HEIGHTMAP);
-
 				if (useTesselation == 3)
 				{
 					TERRAIN_TESS_OFFSET = TERRAIN_TESSELLATION_3D_OFFSET[2];
@@ -3714,13 +4087,27 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 			VectorSet4(l11, GRASS3_WIDTH_REPEATS, GRASS3_MAX_SLOPE, GRASS3_TYPE_UNIFORMALITY_SCALER, GRASS3_RARE_PATCHES_ONLY ? 1.0 : 0.0);
 			GLSL_SetUniformVec4(sp, UNIFORM_LOCAL11, l11);
 
-			if (tr.roadsMapImage != tr.blackImage)
+			if (sp->isBindless)
 			{
-				GL_BindToTMU(tr.roadsMapImage, TB_ROADSCONTROLMAP);
+				if (tr.roadsMapImage && tr.roadsMapImage != tr.blackImage)
+				{
+					GLSL_SetBindlessTexture(sp, UNIFORM_ROADSCONTROLMAP, &tr.roadsMapImage, 0);
+				}
+				else
+				{
+					GLSL_SetBindlessTexture(sp, UNIFORM_ROADSCONTROLMAP, &tr.roadsMapImage, 0);
+				}
 			}
 			else
 			{
-				GL_BindToTMU(tr.blackImage, TB_ROADSCONTROLMAP);
+				if (tr.roadsMapImage && tr.roadsMapImage != tr.blackImage)
+				{
+					GL_BindToTMU(tr.roadsMapImage, TB_ROADSCONTROLMAP);
+				}
+				else
+				{
+					GL_BindToTMU(tr.blackImage, TB_ROADSCONTROLMAP);
+				}
 			}
 
 			{
@@ -3779,7 +4166,14 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 
 			if (GRASS_UNDERWATER_ONLY)
 			{
-				GL_BindToTMU(tr.seaGrassAliasImage[3], TB_WATER_EDGE_MAP);
+				if (sp->isBindless)
+				{
+					GLSL_SetBindlessTexture(sp, UNIFORM_WATER_EDGE_MAP, &tr.seaGrassAliasImage[3], 0);
+				}
+				else
+				{
+					GL_BindToTMU(tr.seaGrassAliasImage[3], TB_WATER_EDGE_MAP);
+				}
 
 				{
 					vec2_t dimensions;
@@ -3790,8 +4184,16 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 			}
 			else
 			{
-				GL_BindToTMU(tr.grassAliasImage[3], TB_DIFFUSEMAP);
-				GL_BindToTMU(tr.seaGrassAliasImage[3], TB_WATER_EDGE_MAP);
+				if (sp->isBindless)
+				{
+					GLSL_SetBindlessTexture(sp, UNIFORM_DIFFUSEMAP, &tr.grassAliasImage[3], 0);
+					GLSL_SetBindlessTexture(sp, UNIFORM_WATER_EDGE_MAP, &tr.seaGrassAliasImage[3], 0);
+				}
+				else
+				{
+					GL_BindToTMU(tr.grassAliasImage[3], TB_DIFFUSEMAP);
+					GL_BindToTMU(tr.seaGrassAliasImage[3], TB_WATER_EDGE_MAP);
+				}
 
 				{
 					vec2_t dimensions;
@@ -3810,8 +4212,6 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 				&& r_terrainTessellationMax->value >= 2.0)
 			{// When tessellating terrain, we need to drop the grasses down lower to allow for the offset...
 				TERRAIN_TESS_OFFSET = TERRAIN_TESSELLATION_OFFSET;
-				//GL_BindToTMU(tr.tessellationMapImage, TB_HEIGHTMAP);
-
 				if (useTesselation == 3)
 				{
 					TERRAIN_TESS_OFFSET = TERRAIN_TESSELLATION_3D_OFFSET[2];
@@ -3826,13 +4226,27 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 			VectorSet4(l11, GRASS4_WIDTH_REPEATS, GRASS4_MAX_SLOPE, GRASS4_TYPE_UNIFORMALITY_SCALER, GRASS4_RARE_PATCHES_ONLY ? 1.0 : 0.0);
 			GLSL_SetUniformVec4(sp, UNIFORM_LOCAL11, l11);
 
-			if (tr.roadsMapImage != tr.blackImage)
+			if (sp->isBindless)
 			{
-				GL_BindToTMU(tr.roadsMapImage, TB_ROADSCONTROLMAP);
+				if (tr.roadsMapImage && tr.roadsMapImage != tr.blackImage)
+				{
+					GLSL_SetBindlessTexture(sp, UNIFORM_ROADSCONTROLMAP, &tr.roadsMapImage, 0);
+				}
+				else
+				{
+					GLSL_SetBindlessTexture(sp, UNIFORM_ROADSCONTROLMAP, &tr.roadsMapImage, 0);
+				}
 			}
 			else
 			{
-				GL_BindToTMU(tr.blackImage, TB_ROADSCONTROLMAP);
+				if (tr.roadsMapImage && tr.roadsMapImage != tr.blackImage)
+				{
+					GL_BindToTMU(tr.roadsMapImage, TB_ROADSCONTROLMAP);
+				}
+				else
+				{
+					GL_BindToTMU(tr.blackImage, TB_ROADSCONTROLMAP);
+				}
 			}
 
 			{
@@ -3896,7 +4310,14 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 				GLSL_SetUniformVec2(sp, UNIFORM_DIMENSIONS, dimensions);
 			}
 
-			GL_BindToTMU(tr.foliageAliasImage, TB_DIFFUSEMAP);
+			if (sp->isBindless)
+			{
+				GLSL_SetBindlessTexture(sp, UNIFORM_DIFFUSEMAP, &tr.foliageAliasImage, 0);
+			}
+			else
+			{
+				GL_BindToTMU(tr.foliageAliasImage, TB_DIFFUSEMAP);
+			}
 
 			float TERRAIN_TESS_OFFSET = 0.0;
 
@@ -3907,7 +4328,6 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 				&& r_terrainTessellationMax->value >= 2.0)
 			{// When tessellating terrain, we need to drop the grasses down lower to allow for the offset...
 				TERRAIN_TESS_OFFSET = TERRAIN_TESSELLATION_OFFSET;
-				//GL_BindToTMU(tr.tessellationMapImage, TB_HEIGHTMAP);
 
 				if (useTesselation == 3)
 				{
@@ -3915,13 +4335,27 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 				}
 			}
 
-			if (tr.roadsMapImage != tr.blackImage)
+			if (sp->isBindless)
 			{
-				GL_BindToTMU(tr.roadsMapImage, TB_ROADSCONTROLMAP);
+				if (tr.roadsMapImage && tr.roadsMapImage != tr.blackImage)
+				{
+					GLSL_SetBindlessTexture(sp, UNIFORM_ROADSCONTROLMAP, &tr.roadsMapImage, 0);
+				}
+				else
+				{
+					GLSL_SetBindlessTexture(sp, UNIFORM_ROADSCONTROLMAP, &tr.roadsMapImage, 0);
+				}
 			}
 			else
 			{
-				GL_BindToTMU(tr.blackImage, TB_ROADSCONTROLMAP);
+				if (tr.roadsMapImage && tr.roadsMapImage != tr.blackImage)
+				{
+					GL_BindToTMU(tr.roadsMapImage, TB_ROADSCONTROLMAP);
+				}
+				else
+				{
+					GL_BindToTMU(tr.blackImage, TB_ROADSCONTROLMAP);
+				}
 			}
 
 			vec4_t l10;
@@ -3995,8 +4429,14 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 //			GLSL_SetUniformVec3xX(sp, UNIFORM_HUMANOIDORIGINS, backEnd.humanoidOrigins, backEnd.humanoidOriginsNum);
 //#endif //__HUMANOIDS_BEND_GRASS__
 
-			GL_BindToTMU(tr.vinesAliasImage, TB_DIFFUSEMAP);
-			//GL_BindToTMU(tr.seaVinesAliasImage, TB_WATER_EDGE_MAP);
+			if (sp->isBindless)
+			{
+				GLSL_SetBindlessTexture(sp, UNIFORM_DIFFUSEMAP, &tr.vinesAliasImage, 0);
+			}
+			else
+			{
+				GL_BindToTMU(tr.vinesAliasImage, TB_DIFFUSEMAP);
+			}
 
 			float TERRAIN_TESS_OFFSET = 0.0;
 
@@ -4007,7 +4447,6 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 				&& r_terrainTessellationMax->value >= 2.0)
 			{// When tessellating terrain, we need to drop the grasses down lower to allow for the offset...
 				TERRAIN_TESS_OFFSET = TERRAIN_TESSELLATION_OFFSET;
-				//GL_BindToTMU(tr.tessellationMapImage, TB_HEIGHTMAP);
 
 				if (useTesselation == 3)
 				{
@@ -4068,7 +4507,14 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 				GLSL_SetUniformVec2(sp, UNIFORM_DIMENSIONS, dimensions);
 			}
 
-			GL_BindToTMU(MIST_TEXTURE, TB_DIFFUSEMAP);
+			if (sp->isBindless)
+			{
+				GLSL_SetBindlessTexture(sp, UNIFORM_DIFFUSEMAP, &MIST_TEXTURE, 0);
+			}
+			else
+			{
+				GL_BindToTMU(MIST_TEXTURE, TB_DIFFUSEMAP);
+			}
 
 			float TERRAIN_TESS_OFFSET = 0.0;
 
@@ -4079,7 +4525,6 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 				&& r_terrainTessellationMax->value >= 2.0)
 			{// When tessellating terrain, we need to drop the mist down lower to allow for the offset...
 				TERRAIN_TESS_OFFSET = TERRAIN_TESSELLATION_OFFSET;
-				//GL_BindToTMU(tr.tessellationMapImage, TB_HEIGHTMAP);
 
 				if (useTesselation == 3)
 				{
@@ -4221,78 +4666,176 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 			GLSL_SetUniformInt(sp, UNIFORM_COLORGEN, forceRGBGen);
 			GLSL_SetUniformInt(sp, UNIFORM_ALPHAGEN, forceAlphaGen);
 
-			if (r_splatMapping->integer 
+			if (r_splatMapping->integer
 				&& (sp == &tr.lightAllSplatShader[0] || sp == &tr.lightAllSplatShader[1] || sp == &tr.lightAllSplatShader[2] || sp == &tr.lightAllSplatShader[3]))
 			{
 #ifdef __USE_DETAIL_MAPS__
-				if (pStage->bundle[TB_DETAILMAP].image[0])
+				if (sp->isBindless)
 				{
-					GL_BindToTMU(pStage->bundle[TB_DETAILMAP].image[0], TB_DETAILMAP);
+					if (pStage->bundle[TB_DETAILMAP].image[0])
+					{
+						GLSL_SetBindlessTexture(sp, UNIFORM_DETAILMAP, &pStage->bundle[TB_DETAILMAP].image[0], 0);
+					}
+					else
+					{
+						GLSL_SetBindlessTexture(sp, UNIFORM_DETAILMAP, &pStage->bundle[TB_DETAILMAP].image[0], 0);
+					}
 				}
 				else
 				{
-					GL_BindToTMU(tr.defaultDetail, TB_DETAILMAP);
+					if (pStage->bundle[TB_DETAILMAP].image[0])
+					{
+						GL_BindToTMU(pStage->bundle[TB_DETAILMAP].image[0], TB_DETAILMAP);
+					}
+					else
+					{
+						GL_BindToTMU(tr.defaultDetail, TB_DETAILMAP);
+					}
 				}
 #endif //__USE_DETAIL_MAPS__
 
 				/*if (pStage->glowMapped && pStage->bundle[TB_GLOWMAP].image[0])
 				{
-					GL_BindToTMU(pStage->bundle[TB_GLOWMAP].image[0], TB_GLOWMAP);
+					if (sp->isBindless)
+					{
+						GLSL_SetBindlessTexture(sp, UNIFORM_GLOWMAP, &pStage->bundle[TB_GLOWMAP].image[0], 0);
+					}
+					else
+					{
+						GL_BindToTMU(pStage->bundle[TB_GLOWMAP].image[0], TB_GLOWMAP);
+					}
 				}*/
 
 				if ((index & LIGHTDEF_USE_REGIONS) || (index & LIGHTDEF_USE_TRIPLANAR))
 				{
 					if (pStage->bundle[TB_SPLATCONTROLMAP].image[0])
 					{
-						GL_BindToTMU(pStage->bundle[TB_SPLATCONTROLMAP].image[0], TB_SPLATCONTROLMAP);
+						if (sp->isBindless)
+						{
+							GLSL_SetBindlessTexture(sp, UNIFORM_SPLATCONTROLMAP, &pStage->bundle[TB_SPLATCONTROLMAP].image[0], 0);
+						}
+						else
+						{
+							GL_BindToTMU(pStage->bundle[TB_SPLATCONTROLMAP].image[0], TB_SPLATCONTROLMAP);
+						}
 					}
 					else
 					{
-						GL_BindToTMU(tr.defaultSplatControlImage, TB_SPLATCONTROLMAP); // really need to make a blured (possibly also considering heightmap) version of this...
+						if (sp->isBindless)
+						{
+							GLSL_SetBindlessTexture(sp, UNIFORM_SPLATCONTROLMAP, &tr.defaultSplatControlImage, 0);
+						}
+						else
+						{
+							GL_BindToTMU(tr.defaultSplatControlImage, TB_SPLATCONTROLMAP); // really need to make a blured (possibly also considering heightmap) version of this...
+						}
 					}
 
 					if (pStage->bundle[TB_ROOFMAP].image[0])
 					{// DiffuseMap becomes the steep texture...
-						GL_BindToTMU(pStage->bundle[TB_DIFFUSEMAP].image[0], TB_STEEPMAP1);
+						if (sp->isBindless)
+						{
+							GLSL_SetBindlessTexture(sp, UNIFORM_DIFFUSEMAP, &pStage->bundle[TB_DIFFUSEMAP].image[0], 0);
+						}
+						else
+						{
+							GL_BindToTMU(pStage->bundle[TB_DIFFUSEMAP].image[0], TB_STEEPMAP1);
+						}
 					}
 					else if (pStage->bundle[TB_STEEPMAP].image[0])
 					{
-						GL_BindToTMU(pStage->bundle[TB_STEEPMAP].image[0], TB_STEEPMAP);
+						if (sp->isBindless)
+						{
+							GLSL_SetBindlessTexture(sp, UNIFORM_STEEPMAP, &pStage->bundle[TB_STEEPMAP].image[0], 0);
+						}
+						else
+						{
+							GL_BindToTMU(pStage->bundle[TB_STEEPMAP].image[0], TB_STEEPMAP);
+						}
 					}
 
 					if (pStage->bundle[TB_STEEPMAP1].image[0])
 					{
-						GL_BindToTMU(pStage->bundle[TB_STEEPMAP1].image[0], TB_STEEPMAP1);
+						if (sp->isBindless)
+						{
+							GLSL_SetBindlessTexture(sp, UNIFORM_STEEPMAP1, &pStage->bundle[TB_STEEPMAP1].image[0], 0);
+						}
+						else
+						{
+							GL_BindToTMU(pStage->bundle[TB_STEEPMAP1].image[0], TB_STEEPMAP1);
+						}
 					}
 
 					if (pStage->bundle[TB_STEEPMAP2].image[0])
 					{
-						GL_BindToTMU(pStage->bundle[TB_STEEPMAP2].image[0], TB_STEEPMAP2);
+						if (sp->isBindless)
+						{
+							GLSL_SetBindlessTexture(sp, UNIFORM_STEEPMAP2, &pStage->bundle[TB_STEEPMAP2].image[0], 0);
+						}
+						else
+						{
+							GL_BindToTMU(pStage->bundle[TB_STEEPMAP2].image[0], TB_STEEPMAP2);
+						}
 					}
 
 					if (pStage->bundle[TB_STEEPMAP3].image[0])
 					{
-						GL_BindToTMU(pStage->bundle[TB_STEEPMAP3].image[0], TB_STEEPMAP3);
+						if (sp->isBindless)
+						{
+							GLSL_SetBindlessTexture(sp, UNIFORM_STEEPMAP3, &pStage->bundle[TB_STEEPMAP3].image[0], 0);
+						}
+						else
+						{
+							GL_BindToTMU(pStage->bundle[TB_STEEPMAP3].image[0], TB_STEEPMAP3);
+						}
 					}
 
 					if (pStage->bundle[TB_WATER_EDGE_MAP].image[0])
 					{
-						GL_BindToTMU(pStage->bundle[TB_WATER_EDGE_MAP].image[0], TB_WATER_EDGE_MAP);
+						if (sp->isBindless)
+						{
+							GLSL_SetBindlessTexture(sp, UNIFORM_WATER_EDGE_MAP, &pStage->bundle[TB_WATER_EDGE_MAP].image[0], 0);
+						}
+						else
+						{
+							GL_BindToTMU(pStage->bundle[TB_WATER_EDGE_MAP].image[0], TB_WATER_EDGE_MAP);
+						}
 					}
 
 					if (pStage->bundle[TB_SPLATMAP1].image[0])
 					{
-						GL_BindToTMU(pStage->bundle[TB_SPLATMAP1].image[0], TB_SPLATMAP1);
+						if (sp->isBindless)
+						{
+							GLSL_SetBindlessTexture(sp, UNIFORM_SPLATMAP1, &pStage->bundle[TB_SPLATMAP1].image[0], 0);
+						}
+						else
+						{
+							GL_BindToTMU(pStage->bundle[TB_SPLATMAP1].image[0], TB_SPLATMAP1);
+						}
 					}
 
 					if (pStage->bundle[TB_SPLATMAP2].image[0])
 					{
-						GL_BindToTMU(pStage->bundle[TB_SPLATMAP2].image[0], TB_SPLATMAP2);
+						if (sp->isBindless)
+						{
+							GLSL_SetBindlessTexture(sp, UNIFORM_SPLATMAP2, &pStage->bundle[TB_SPLATMAP2].image[0], 0);
+						}
+						else
+						{
+							GL_BindToTMU(pStage->bundle[TB_SPLATMAP2].image[0], TB_SPLATMAP2);
+						}
 					}
 
 					if (pStage->bundle[TB_SPLATMAP3].image[0])
 					{
-						GL_BindToTMU(pStage->bundle[TB_SPLATMAP3].image[0], TB_SPLATMAP3);
+						if (sp->isBindless)
+						{
+							GLSL_SetBindlessTexture(sp, UNIFORM_SPLATMAP3, &pStage->bundle[TB_SPLATMAP3].image[0], 0);
+						}
+						else
+						{
+							GL_BindToTMU(pStage->bundle[TB_SPLATMAP3].image[0], TB_SPLATMAP3);
+						}
 					}
 				}
 			}
@@ -4302,7 +4845,14 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 			//
 			if (pStage->bundle[TB_OVERLAYMAP].image[0])
 			{
-				R_BindAnimatedImageToTMU(&pStage->bundle[TB_OVERLAYMAP], TB_OVERLAYMAP);
+				if (sp->isBindless)
+				{
+					GLSL_SetBindlessTexture(sp, UNIFORM_OVERLAYMAP, &pStage->bundle[TB_OVERLAYMAP].image[0], 0);
+				}
+				else
+				{
+					R_BindAnimatedImageToTMU(&pStage->bundle[TB_OVERLAYMAP], TB_OVERLAYMAP);
+				}
 			}
 
 			//
@@ -4312,16 +4862,48 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 			{// This stage wants sky up image for it's diffuse... TODO: sky cubemap...
 #ifdef __DAY_NIGHT__
 				if (!DAY_NIGHT_CYCLE_ENABLED || RB_NightScale() < 1.0)
-					GL_BindToTMU(tr.skyImageShader->sky.outerbox[4], TB_ENVMAP); // Sky up...
+				{
+					if (sp->isBindless)
+					{
+						GLSL_SetBindlessTexture(sp, UNIFORM_ENVMAP, &tr.skyImageShader->sky.outerbox[4], 0);
+					}
+					else
+					{
+						GL_BindToTMU(tr.skyImageShader->sky.outerbox[4], TB_ENVMAP); // Sky up...
+					}
+				}
 				else
-					GL_BindToTMU(tr.skyImageShader->sky.outerboxnight[4], TB_ENVMAP); // Night sky up...
+				{
+					if (sp->isBindless)
+					{
+						GLSL_SetBindlessTexture(sp, UNIFORM_ENVMAP, &tr.skyImageShader->sky.outerboxnight[4], 0);
+					}
+					else
+					{
+						GL_BindToTMU(tr.skyImageShader->sky.outerboxnight[4], TB_ENVMAP); // Night sky up...
+					}
+				}
 #else
-				GL_BindToTMU(tr.skyImageShader->sky.outerbox[4], TB_ENVMAP); // Sky up...
+				if (sp->isBindless)
+				{
+					GLSL_SetBindlessTexture(sp, UNIFORM_ENVMAP, &tr.skyImageShader->sky.outerbox[4], 0);
+				}
+				else
+				{
+					GL_BindToTMU(tr.skyImageShader->sky.outerbox[4], TB_ENVMAP); // Sky up...
+				}
 #endif
 			}
 			else if (pStage->bundle[TB_ENVMAP].image[0])
 			{
-				R_BindAnimatedImageToTMU(&pStage->bundle[TB_ENVMAP], TB_ENVMAP);
+				if (sp->isBindless)
+				{
+					GLSL_SetBindlessTexture(sp, UNIFORM_ENVMAP, &pStage->bundle[TB_ENVMAP].image[0], 0);
+				}
+				else
+				{
+					R_BindAnimatedImageToTMU(&pStage->bundle[TB_ENVMAP], TB_ENVMAP);
+				}
 			}
 
 #ifdef __SCREEN_SPACE_GLASS_REFLECTIONS__
@@ -4346,15 +4928,29 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 				GLSL_SetUniformVec3(sp, UNIFORM_PRIMARYLIGHTCOLOR, backEnd.viewParms.emissiveLightColor);
 			}
 
-			if (tr.roadsMapImage != tr.blackImage)
+			if (sp->isBindless)
 			{
-				GL_BindToTMU(tr.roadsMapImage, TB_ROADSCONTROLMAP);
-				GL_BindToTMU(tr.roadImage, TB_ROADMAP);
+				if (tr.roadsMapImage && tr.roadsMapImage != tr.blackImage)
+				{
+					GLSL_SetBindlessTexture(sp, UNIFORM_ROADSCONTROLMAP, &tr.roadsMapImage, 0);
+					GLSL_SetBindlessTexture(sp, UNIFORM_ROADMAP, &tr.roadImage, 0);
+				}
+				else
+				{
+					GLSL_SetBindlessTexture(sp, UNIFORM_ROADSCONTROLMAP, &tr.blackImage, 0);
+				}
 			}
 			else
 			{
-				GL_BindToTMU(tr.blackImage, TB_ROADSCONTROLMAP);
-				//GL_BindToTMU(tr.blackImage, TB_ROADMAP);
+				if (tr.roadsMapImage && tr.roadsMapImage != tr.blackImage)
+				{
+					GL_BindToTMU(tr.roadsMapImage, TB_ROADSCONTROLMAP);
+					GL_BindToTMU(tr.roadImage, TB_ROADMAP);
+				}
+				else
+				{
+					GL_BindToTMU(tr.blackImage, TB_ROADSCONTROLMAP);
+				}
 			}
 
 			vec4_t loc;
@@ -4373,157 +4969,264 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 		//
 		if (backEnd.renderPass == RENDERPASS_NONE || is2D)
 		{
-			if (sp == &tr.depthPassShader[0] || sp == &tr.depthPassShader[1] || sp == &tr.depthPassShader[2] || sp == &tr.depthPassShader[3])
+			if (sp->isBindless)
 			{
-				if (!(pStage->stateBits & GLS_ATEST_BITS))
-					GL_BindToTMU(tr.whiteImage, 0);
-				else if (tess.shader->isCursor && backEnd.ui_MouseCursor > 0)
-					GL_BindImageIDToTMU(backEnd.ui_MouseCursor, TB_COLORMAP); // override with nuklear's selected icon for drag/drop stuff...
-				else if (pStage->bundle[TB_COLORMAP].image[0] != 0)
-					R_BindAnimatedImageToTMU(&pStage->bundle[TB_COLORMAP], TB_COLORMAP);
-			}
-			else if ((tr.viewParms.flags & VPF_SHADOWPASS))
-			{
-				if (pStage->bundle[TB_DIFFUSEMAP].image[0])
-					R_BindAnimatedImageToTMU(&pStage->bundle[TB_DIFFUSEMAP], TB_DIFFUSEMAP);
-				else if (!(pStage->stateBits & GLS_ATEST_BITS))
-					GL_BindToTMU(tr.whiteImage, 0);
-			}
-			else if (IS_DEPTH_PASS || backEnd.depthFill)
-			{
-				if (!(pStage->stateBits & GLS_ATEST_BITS))
-					GL_BindToTMU(tr.whiteImage, 0);
-				else if (pStage->bundle[TB_COLORMAP].image[0] != 0)
-					R_BindAnimatedImageToTMU(&pStage->bundle[TB_COLORMAP], TB_COLORMAP);
-			}
-			else if (tess.shader->materialType == MATERIAL_LAVA)
-			{// Don't need any textures... Procedural...
-				//GL_BindToTMU(tr.random2KImage[0], TB_DIFFUSEMAP);
-			}
-			else if (pStage->useSkyImage && tr.skyImageShader)
-			{// This stage wants sky up image for it's diffuse... TODO: sky cubemap...
+				if (sp == &tr.depthPassShader[0] || sp == &tr.depthPassShader[1] || sp == &tr.depthPassShader[2] || sp == &tr.depthPassShader[3])
+				{
+					if (!(pStage->stateBits & GLS_ATEST_BITS))
+						GLSL_SetBindlessTexture(sp, UNIFORM_DIFFUSEMAP, &tr.whiteImage, 0);
+					/*else if (tess.shader->isCursor && backEnd.ui_MouseCursor > 0)
+						GL_BindImageIDToTMU(backEnd.ui_MouseCursor, TB_COLORMAP);*/ // override with nuklear's selected icon for drag/drop stuff... ****** FIXME - BINDLESS ID ******
+					else if (pStage->bundle[TB_COLORMAP].image[0] != 0)
+						GLSL_SetBindlessTexture(sp, UNIFORM_DIFFUSEMAP, &pStage->bundle[TB_COLORMAP].image[0], 0);
+				}
+				else if ((tr.viewParms.flags & VPF_SHADOWPASS))
+				{
+					if (pStage->bundle[TB_DIFFUSEMAP].image[0])
+						GLSL_SetBindlessTexture(sp, UNIFORM_DIFFUSEMAP, &pStage->bundle[TB_DIFFUSEMAP].image[0], 0);
+					else if (!(pStage->stateBits & GLS_ATEST_BITS))
+						GLSL_SetBindlessTexture(sp, UNIFORM_DIFFUSEMAP, &tr.whiteImage, 0);
+				}
+				else if (IS_DEPTH_PASS || backEnd.depthFill)
+				{
+					if (!(pStage->stateBits & GLS_ATEST_BITS))
+						GLSL_SetBindlessTexture(sp, UNIFORM_DIFFUSEMAP, &tr.whiteImage, 0);
+					else if (pStage->bundle[TB_COLORMAP].image[0] != 0)
+						GLSL_SetBindlessTexture(sp, UNIFORM_DIFFUSEMAP, &pStage->bundle[TB_COLORMAP].image[0], 0);
+				}
+				else if (tess.shader->materialType == MATERIAL_LAVA)
+				{// Don't need any textures... Procedural...
+				 
+				}
+				else if (pStage->useSkyImage && tr.skyImageShader)
+				{// This stage wants sky up image for it's diffuse... TODO: sky cubemap...
 #ifdef __DAY_NIGHT__
-				if (!DAY_NIGHT_CYCLE_ENABLED || RB_NightScale() < 1.0)
-					GL_BindToTMU(tr.skyImageShader->sky.outerbox[4], TB_COLORMAP); // Sky up...
-				else
-					GL_BindToTMU(tr.skyImageShader->sky.outerboxnight[4], TB_COLORMAP); // Night sky up...
+					if (!DAY_NIGHT_CYCLE_ENABLED || RB_NightScale() < 1.0)
+						GLSL_SetBindlessTexture(sp, UNIFORM_DIFFUSEMAP, &tr.skyImageShader->sky.outerbox[4], 0);
+					else
+						GLSL_SetBindlessTexture(sp, UNIFORM_DIFFUSEMAP, &tr.skyImageShader->sky.outerboxnight[4], 0);
 #else
-				GL_BindToTMU(tr.skyImageShader->sky.outerbox[4], TB_COLORMAP); // Sky up...
+					GLSL_SetBindlessTexture(sp, UNIFORM_DIFFUSEMAP, &tr.skyImageShader->sky.outerbox[4], 0);
 #endif
-			}
-			else if (sp == &tr.lightAllShader[0] || sp == &tr.lightAllSplatShader[0]
-				|| sp == &tr.lightAllShader[1] || sp == &tr.lightAllSplatShader[1]
-				|| sp == &tr.lightAllShader[2] || sp == &tr.lightAllSplatShader[2]
-				|| sp == &tr.lightAllSplatShader[3])
-			{
-				int i;
+				}
+				else if (sp == &tr.lightAllShader[0] || sp == &tr.lightAllSplatShader[0]
+					|| sp == &tr.lightAllShader[1] || sp == &tr.lightAllSplatShader[1]
+					|| sp == &tr.lightAllShader[2] || sp == &tr.lightAllSplatShader[2]
+					|| sp == &tr.lightAllSplatShader[3])
+				{
+					int i;
 
-				if ((r_lightmap->integer == 1 || r_lightmap->integer == 2) && pStage->bundle[TB_LIGHTMAP].image[0])
-				{
-					for (i = 0; i < NUM_TEXTURE_BUNDLES; i++)
+					if ((r_lightmap->integer == 1 || r_lightmap->integer == 2) && pStage->bundle[TB_LIGHTMAP].image[0])
 					{
-						if (i == TB_LIGHTMAP)
-							R_BindAnimatedImageToTMU(&pStage->bundle[TB_LIGHTMAP], i);
-						else
-							GL_BindToTMU(tr.whiteImage, i);
+						for (i = 0; i <= UNIFORM_SHADOWMAP5; i++)
+						{
+							if (i == UNIFORM_LIGHTMAP)
+								GLSL_SetBindlessTexture(sp, UNIFORM_LIGHTMAP, &pStage->bundle[TB_LIGHTMAP].image[0], 0);
+							else
+								GLSL_SetBindlessTexture(sp, i, &tr.whiteImage, 0);
+						}
+					}
+					else if (r_lightmap->integer == 3 && pStage->bundle[TB_DELUXEMAP].image[0])
+					{
+						for (i = 0; i <= UNIFORM_SHADOWMAP5; i++)
+						{
+							if (i == UNIFORM_LIGHTMAP)
+								GLSL_SetBindlessTexture(sp, UNIFORM_LIGHTMAP, &pStage->bundle[TB_DELUXEMAP].image[0], 0);
+							else
+								GLSL_SetBindlessTexture(sp, i, &tr.whiteImage, 0);
+						}
+					}
+					else
+					{
+						/*if (tess.shader->isCursor && backEnd.ui_MouseCursor > 0)
+							GL_BindImageIDToTMU(backEnd.ui_MouseCursor, TB_DIFFUSEMAP); // override with nuklear's selected icon for drag/drop stuff... ****** FIXME - BINDLESS ID ******
+						else*/ if (pStage->bundle[TB_ROOFMAP].image[0]) // Roofmap becomes the triplanar flat surface texture...
+							GLSL_SetBindlessTexture(sp, UNIFORM_DIFFUSEMAP, &pStage->bundle[TB_ROOFMAP].image[0], 0);
+						else if (pStage->bundle[TB_DIFFUSEMAP].image[0])
+							GLSL_SetBindlessTexture(sp, UNIFORM_DIFFUSEMAP, &pStage->bundle[TB_DIFFUSEMAP].image[0], 0);
+
+						if (!lightMapsDisabled)
+						{
+							if (pStage->bundle[TB_LIGHTMAP].image[0])
+								GLSL_SetBindlessTexture(sp, UNIFORM_LIGHTMAP, &pStage->bundle[TB_LIGHTMAP].image[0], 0);
+							else
+								GLSL_SetBindlessTexture(sp, UNIFORM_LIGHTMAP, &tr.whiteImage, 0);
+						}
+
+						// bind textures that are sampled and used in the glsl shader, and
+						// bind whiteImage to textures that are sampled but zeroed in the glsl shader
+						//
+						// alternatives:
+						//  - use the last bound texture
+						//     -> costs more to sample a higher res texture then throw out the result
+						//  - disable texture sampling in glsl shader with #ifdefs, as before
+						//     -> increases the number of shaders that must be compiled
+						//
+						if (r_normalMappingReal->integer)
+						{
+							if (sp == &tr.lightAllShader[0] || sp == &tr.lightAllShader[1] || sp == &tr.lightAllShader[2])
+							{
+								if (pStage->bundle[TB_NORMALMAP].image[0])
+								{
+									GLSL_SetBindlessTexture(sp, UNIFORM_NORMALMAP, &pStage->bundle[TB_NORMALMAP].image[0], 0);
+								}
+								else if (r_normalMapping->integer >= 2)
+								{
+									GLSL_SetBindlessTexture(sp, UNIFORM_NORMALMAP, &tr.whiteImage, 0);
+								}
+							}
+						}
+
+						if (pStage->glowMapped && pStage->bundle[TB_GLOWMAP].image[0])
+						{
+							GLSL_SetBindlessTexture(sp, UNIFORM_GLOWMAP, &pStage->bundle[TB_GLOWMAP].image[0], 0);
+						}
 					}
 				}
-				else if (r_lightmap->integer == 3 && pStage->bundle[TB_DELUXEMAP].image[0])
+				else if (pStage->bundle[TB_LIGHTMAP].image[0] != 0)
 				{
-					for (i = 0; i < NUM_TEXTURE_BUNDLES; i++)
-					{
-						if (i == TB_LIGHTMAP)
-							R_BindAnimatedImageToTMU(&pStage->bundle[TB_DELUXEMAP], i);
-						else
-							GL_BindToTMU(tr.whiteImage, i);
-					}
-				}
-				else
-				{
-					if (tess.shader->isCursor && backEnd.ui_MouseCursor > 0)
-						GL_BindImageIDToTMU(backEnd.ui_MouseCursor, TB_DIFFUSEMAP); // override with nuklear's selected icon for drag/drop stuff...
-					else if (pStage->bundle[TB_ROOFMAP].image[0]) // Roofmap becomes the triplanar flat surface texture...
-						R_BindAnimatedImageToTMU(&pStage->bundle[TB_ROOFMAP], TB_DIFFUSEMAP);
-					else if (pStage->bundle[TB_DIFFUSEMAP].image[0])
-						R_BindAnimatedImageToTMU(&pStage->bundle[TB_DIFFUSEMAP], TB_DIFFUSEMAP);
+					GLSL_SetBindlessTexture(sp, UNIFORM_DIFFUSEMAP, &pStage->bundle[TB_DIFFUSEMAP].image[0], 0);
 
 					if (!lightMapsDisabled)
 					{
-						if (pStage->bundle[TB_LIGHTMAP].image[0])
-							R_BindAnimatedImageToTMU(&pStage->bundle[TB_LIGHTMAP], TB_LIGHTMAP);
-						else
-							GL_BindToTMU(tr.whiteImage, TB_LIGHTMAP);
+						GLSL_SetBindlessTexture(sp, UNIFORM_LIGHTMAP, &pStage->bundle[TB_LIGHTMAP].image[0], 0);
 					}
-
-					// bind textures that are sampled and used in the glsl shader, and
-					// bind whiteImage to textures that are sampled but zeroed in the glsl shader
-					//
-					// alternatives:
-					//  - use the last bound texture
-					//     -> costs more to sample a higher res texture then throw out the result
-					//  - disable texture sampling in glsl shader with #ifdefs, as before
-					//     -> increases the number of shaders that must be compiled
-					//
-					if (r_normalMappingReal->integer)
-					{
-						if (sp == &tr.lightAllShader[0] || sp == &tr.lightAllShader[1] || sp == &tr.lightAllShader[2])
-						{
-							if (pStage->bundle[TB_NORMALMAP].image[0])
-							{
-								R_BindAnimatedImageToTMU(&pStage->bundle[TB_NORMALMAP], TB_NORMALMAP);
-							}
-							else if (r_normalMapping->integer >= 2)
-							{
-								GL_BindToTMU(tr.whiteImage, TB_NORMALMAP);
-							}
-						}
-					}
-
-					/*if (pStage->bundle[TB_DELUXEMAP].image[0])
-					{
-						R_BindAnimatedImageToTMU(&pStage->bundle[TB_DELUXEMAP], TB_DELUXEMAP);
-					}
-					else if (r_deluxeMapping->integer)
-					{
-						GL_BindToTMU(tr.whiteImage, TB_DELUXEMAP);
-					}*/
-
-					/*if (pStage->bundle[TB_SPECULARMAP].image[0])
-					{
-						R_BindAnimatedImageToTMU(&pStage->bundle[TB_SPECULARMAP], TB_SPECULARMAP);
-					}
-					else if (r_specularMapping->integer)
-					{
-						GL_BindToTMU(tr.whiteImage, TB_SPECULARMAP);
-					}*/
-
-					if (pStage->glowMapped && pStage->bundle[TB_GLOWMAP].image[0])
-					{
-						GL_BindToTMU(pStage->bundle[TB_GLOWMAP].image[0], TB_GLOWMAP);
-					}
-
-#ifdef __HEIGHTMAP_TERRAIN_TEST__
-					{// Testing
-						//GL_BindToTMU(tr.defaultGrassMapImage/*tr.random2KImage[0]*/, TB_HEIGHTMAP);
-					}
-#endif //__HEIGHTMAP_TERRAIN_TEST__
 				}
-			}
-			else if (pStage->bundle[TB_LIGHTMAP].image[0] != 0)
-			{
-				R_BindAnimatedImageToTMU(&pStage->bundle[TB_DIFFUSEMAP], 0);
-
-				if (!lightMapsDisabled)
+				else
 				{
-					R_BindAnimatedImageToTMU(&pStage->bundle[TB_LIGHTMAP], 1);
+					GLSL_SetBindlessTexture(sp, UNIFORM_DIFFUSEMAP, &pStage->bundle[TB_DIFFUSEMAP].image[0], 0);
 				}
 			}
 			else
 			{
-				//
-				// set state
-				//
-				R_BindAnimatedImageToTMU(&pStage->bundle[0], 0);
+				if (sp == &tr.depthPassShader[0] || sp == &tr.depthPassShader[1] || sp == &tr.depthPassShader[2] || sp == &tr.depthPassShader[3])
+				{
+					if (!(pStage->stateBits & GLS_ATEST_BITS))
+						GL_BindToTMU(tr.whiteImage, 0);
+					else if (tess.shader->isCursor && backEnd.ui_MouseCursor > 0)
+						GL_BindImageIDToTMU(backEnd.ui_MouseCursor, TB_COLORMAP); // override with nuklear's selected icon for drag/drop stuff...
+					else if (pStage->bundle[TB_COLORMAP].image[0] != 0)
+						R_BindAnimatedImageToTMU(&pStage->bundle[TB_COLORMAP], TB_COLORMAP);
+				}
+				else if ((tr.viewParms.flags & VPF_SHADOWPASS))
+				{
+					if (pStage->bundle[TB_DIFFUSEMAP].image[0])
+						R_BindAnimatedImageToTMU(&pStage->bundle[TB_DIFFUSEMAP], TB_DIFFUSEMAP);
+					else if (!(pStage->stateBits & GLS_ATEST_BITS))
+						GL_BindToTMU(tr.whiteImage, 0);
+				}
+				else if (IS_DEPTH_PASS || backEnd.depthFill)
+				{
+					if (!(pStage->stateBits & GLS_ATEST_BITS))
+						GL_BindToTMU(tr.whiteImage, 0);
+					else if (pStage->bundle[TB_COLORMAP].image[0] != 0)
+						R_BindAnimatedImageToTMU(&pStage->bundle[TB_COLORMAP], TB_COLORMAP);
+				}
+				else if (tess.shader->materialType == MATERIAL_LAVA)
+				{// Don't need any textures... Procedural...
+					//GL_BindToTMU(tr.random2KImage[0], TB_DIFFUSEMAP);
+				}
+				else if (pStage->useSkyImage && tr.skyImageShader)
+				{// This stage wants sky up image for it's diffuse... TODO: sky cubemap...
+#ifdef __DAY_NIGHT__
+					if (!DAY_NIGHT_CYCLE_ENABLED || RB_NightScale() < 1.0)
+						GL_BindToTMU(tr.skyImageShader->sky.outerbox[4], TB_COLORMAP); // Sky up...
+					else
+						GL_BindToTMU(tr.skyImageShader->sky.outerboxnight[4], TB_COLORMAP); // Night sky up...
+#else
+					GL_BindToTMU(tr.skyImageShader->sky.outerbox[4], TB_COLORMAP); // Sky up...
+#endif
+				}
+				else if (sp == &tr.lightAllShader[0] || sp == &tr.lightAllSplatShader[0]
+					|| sp == &tr.lightAllShader[1] || sp == &tr.lightAllSplatShader[1]
+					|| sp == &tr.lightAllShader[2] || sp == &tr.lightAllSplatShader[2]
+					|| sp == &tr.lightAllSplatShader[3])
+				{
+					int i;
+
+					if ((r_lightmap->integer == 1 || r_lightmap->integer == 2) && pStage->bundle[TB_LIGHTMAP].image[0])
+					{
+						for (i = 0; i < NUM_TEXTURE_BUNDLES; i++)
+						{
+							if (i == TB_LIGHTMAP)
+								R_BindAnimatedImageToTMU(&pStage->bundle[TB_LIGHTMAP], i);
+							else
+								GL_BindToTMU(tr.whiteImage, i);
+						}
+					}
+					else if (r_lightmap->integer == 3 && pStage->bundle[TB_DELUXEMAP].image[0])
+					{
+						for (i = 0; i < NUM_TEXTURE_BUNDLES; i++)
+						{
+							if (i == TB_LIGHTMAP)
+								R_BindAnimatedImageToTMU(&pStage->bundle[TB_DELUXEMAP], i);
+							else
+								GL_BindToTMU(tr.whiteImage, i);
+						}
+					}
+					else
+					{
+						if (tess.shader->isCursor && backEnd.ui_MouseCursor > 0)
+							GL_BindImageIDToTMU(backEnd.ui_MouseCursor, TB_DIFFUSEMAP); // override with nuklear's selected icon for drag/drop stuff...
+						else if (pStage->bundle[TB_ROOFMAP].image[0]) // Roofmap becomes the triplanar flat surface texture...
+							R_BindAnimatedImageToTMU(&pStage->bundle[TB_ROOFMAP], TB_DIFFUSEMAP);
+						else if (pStage->bundle[TB_DIFFUSEMAP].image[0])
+							R_BindAnimatedImageToTMU(&pStage->bundle[TB_DIFFUSEMAP], TB_DIFFUSEMAP);
+
+						if (!lightMapsDisabled)
+						{
+							if (pStage->bundle[TB_LIGHTMAP].image[0])
+								R_BindAnimatedImageToTMU(&pStage->bundle[TB_LIGHTMAP], TB_LIGHTMAP);
+							else
+								GL_BindToTMU(tr.whiteImage, TB_LIGHTMAP);
+						}
+
+						// bind textures that are sampled and used in the glsl shader, and
+						// bind whiteImage to textures that are sampled but zeroed in the glsl shader
+						//
+						// alternatives:
+						//  - use the last bound texture
+						//     -> costs more to sample a higher res texture then throw out the result
+						//  - disable texture sampling in glsl shader with #ifdefs, as before
+						//     -> increases the number of shaders that must be compiled
+						//
+						if (r_normalMappingReal->integer)
+						{
+							if (sp == &tr.lightAllShader[0] || sp == &tr.lightAllShader[1] || sp == &tr.lightAllShader[2])
+							{
+								if (pStage->bundle[TB_NORMALMAP].image[0])
+								{
+									R_BindAnimatedImageToTMU(&pStage->bundle[TB_NORMALMAP], TB_NORMALMAP);
+								}
+								else if (r_normalMapping->integer >= 2)
+								{
+									GL_BindToTMU(tr.whiteImage, TB_NORMALMAP);
+								}
+							}
+						}
+
+						if (pStage->glowMapped && pStage->bundle[TB_GLOWMAP].image[0])
+						{
+							GL_BindToTMU(pStage->bundle[TB_GLOWMAP].image[0], TB_GLOWMAP);
+						}
+					}
+				}
+				else if (pStage->bundle[TB_LIGHTMAP].image[0] != 0)
+				{
+					R_BindAnimatedImageToTMU(&pStage->bundle[TB_DIFFUSEMAP], 0);
+
+					if (!lightMapsDisabled)
+					{
+						R_BindAnimatedImageToTMU(&pStage->bundle[TB_LIGHTMAP], 1);
+					}
+				}
+				else
+				{
+					//
+					// set state
+					//
+					R_BindAnimatedImageToTMU(&pStage->bundle[0], 0);
+				}
 			}
 		}
 
@@ -4563,8 +5266,6 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 			ss[1] = glConfig.vidHeight * r_superSampleMultiplier->value;
 			GLSL_SetUniformVec2(sp, UNIFORM_DIMENSIONS, ss);
 
-			//GL_BindToTMU(tr.moonImage, TB_DIFFUSEMAP);
-
 			GLSL_SetUniformFloat(sp, UNIFORM_TIME, tess.shaderTime*10.0);
 			GL_Cull(CT_TWO_SIDED);
 		}
@@ -4583,8 +5284,6 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 		{// Special case for procedural smoke...
 			stateBits = GLS_DEPTHFUNC_LESS | GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA | GLS_ATEST_GT_0;
 			RB_SetMaterialBasedProperties(sp, pStage, stage, qfalse);
-
-			//GL_BindToTMU(tr.moonImage, TB_DIFFUSEMAP);
 
 			GLSL_SetUniformFloat(sp, UNIFORM_TIME, tess.shaderTime*10.0);
 			GL_Cull(CT_TWO_SIDED);
@@ -4682,20 +5381,34 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 				&& r_terrainTessellationMax->value >= 2.0)
 			{// When tessellating terrain, we need to drop the grasses down lower to allow for the offset...
 				TERRAIN_TESS_OFFSET = TERRAIN_TESSELLATION_OFFSET;
-				//GL_BindToTMU(tr.tessellationMapImage, TB_HEIGHTMAP);
 
 				if (useTesselation == 3)
 				{
 					TERRAIN_TESS_OFFSET = TERRAIN_TESSELLATION_3D_OFFSET[2];
 				}
 
-				if (tr.roadsMapImage != tr.blackImage)
+
+				if (sp->isBindless)
 				{
-					GL_BindToTMU(tr.roadsMapImage, TB_ROADSCONTROLMAP);
+					if (tr.roadsMapImage && tr.roadsMapImage != tr.blackImage)
+					{
+						GLSL_SetBindlessTexture(sp, UNIFORM_ROADSCONTROLMAP, &tr.roadsMapImage, 0);
+					}
+					else
+					{
+						GLSL_SetBindlessTexture(sp, UNIFORM_ROADSCONTROLMAP, &tr.blackImage, 0);
+					}
 				}
 				else
 				{
-					GL_BindToTMU(tr.blackImage, TB_ROADSCONTROLMAP);
+					if (tr.roadsMapImage && tr.roadsMapImage != tr.blackImage)
+					{
+						GL_BindToTMU(tr.roadsMapImage, TB_ROADSCONTROLMAP);
+					}
+					else
+					{
+						GL_BindToTMU(tr.blackImage, TB_ROADSCONTROLMAP);
+					}
 				}
 			}
 
@@ -4728,20 +5441,33 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 				&& r_terrainTessellationMax->value >= 2.0)
 			{// When tessellating terrain, we need to drop the grasses down lower to allow for the offset...
 				TERRAIN_TESS_OFFSET = TERRAIN_TESSELLATION_OFFSET;
-				//GL_BindToTMU(tr.tessellationMapImage, TB_HEIGHTMAP);
 
 				if (useTesselation == 3)
 				{
 					TERRAIN_TESS_OFFSET = TERRAIN_TESSELLATION_3D_OFFSET[2];
 				}
 
-				if (tr.roadsMapImage != tr.blackImage)
+				if (sp->isBindless)
 				{
-					GL_BindToTMU(tr.roadsMapImage, TB_ROADSCONTROLMAP);
+					if (tr.roadsMapImage && tr.roadsMapImage != tr.blackImage)
+					{
+						GLSL_SetBindlessTexture(sp, UNIFORM_ROADSCONTROLMAP, &tr.roadsMapImage, 0);
+					}
+					else
+					{
+						GLSL_SetBindlessTexture(sp, UNIFORM_ROADSCONTROLMAP, &tr.blackImage, 0);
+					}
 				}
 				else
 				{
-					GL_BindToTMU(tr.blackImage, TB_ROADSCONTROLMAP);
+					if (tr.roadsMapImage && tr.roadsMapImage != tr.blackImage)
+					{
+						GL_BindToTMU(tr.roadsMapImage, TB_ROADSCONTROLMAP);
+					}
+					else
+					{
+						GL_BindToTMU(tr.blackImage, TB_ROADSCONTROLMAP);
+					}
 				}
 			}
 
@@ -4792,25 +5518,48 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 			}
 		}
 		else if (isGlass || isPush || isPull || isCloak)
-		{// Attach dummy water output textures...
+		{// Attach dummy transparancy output textures...
+			backEnd.pc.c_transparancyDraws++;
+
 			if (glState.currentFBO == tr.renderFbo)
 			{// Only attach textures when doing a render pass...
 				if (isPush)
 				{
-					GLSL_SetUniformInt(sp, UNIFORM_DIFFUSEMAP, TB_DIFFUSEMAP);
-					R_BindAnimatedImageToTMU(&pStage->bundle[TB_DIFFUSEMAP], TB_DIFFUSEMAP);
+					if (sp->isBindless)
+					{
+						GLSL_SetBindlessTexture(sp, UNIFORM_DIFFUSEMAP, &pStage->bundle[TB_DIFFUSEMAP].image[0], 0);
+					}
+					else
+					{
+						GLSL_SetUniformInt(sp, UNIFORM_DIFFUSEMAP, TB_DIFFUSEMAP);
+						R_BindAnimatedImageToTMU(&pStage->bundle[TB_DIFFUSEMAP], TB_DIFFUSEMAP);
+					}
 					stateBits = GLS_DEPTHFUNC_LESS | GLS_SRCBLEND_ONE | GLS_DSTBLEND_ZERO | GLS_ATEST_GT_0;
 				}
 				else if (isPull)
 				{
-					GLSL_SetUniformInt(sp, UNIFORM_DIFFUSEMAP, TB_DIFFUSEMAP);
-					R_BindAnimatedImageToTMU(&pStage->bundle[TB_DIFFUSEMAP], TB_DIFFUSEMAP);
+					if (sp->isBindless)
+					{
+						GLSL_SetBindlessTexture(sp, UNIFORM_DIFFUSEMAP, &pStage->bundle[TB_DIFFUSEMAP].image[0], 0);
+					}
+					else
+					{
+						GLSL_SetUniformInt(sp, UNIFORM_DIFFUSEMAP, TB_DIFFUSEMAP);
+						R_BindAnimatedImageToTMU(&pStage->bundle[TB_DIFFUSEMAP], TB_DIFFUSEMAP);
+					}
 					stateBits = GLS_DEPTHFUNC_LESS | GLS_SRCBLEND_ONE | GLS_DSTBLEND_ZERO | GLS_ATEST_GT_0;
 				}
 				else if (isCloak)
 				{
-					GLSL_SetUniformInt(sp, UNIFORM_DIFFUSEMAP, TB_DIFFUSEMAP);
-					R_BindAnimatedImageToTMU(&pStage->bundle[TB_DIFFUSEMAP], TB_DIFFUSEMAP);
+					if (sp->isBindless)
+					{
+						GLSL_SetBindlessTexture(sp, UNIFORM_DIFFUSEMAP, &pStage->bundle[TB_DIFFUSEMAP].image[0], 0);
+					}
+					else
+					{
+						GLSL_SetUniformInt(sp, UNIFORM_DIFFUSEMAP, TB_DIFFUSEMAP);
+						R_BindAnimatedImageToTMU(&pStage->bundle[TB_DIFFUSEMAP], TB_DIFFUSEMAP);
+					}
 					stateBits = GLS_DEPTHFUNC_LESS | GLS_SRCBLEND_ONE | GLS_DSTBLEND_ZERO | GLS_ATEST_GT_0;
 				}
 				else // distorted glass
@@ -4856,7 +5605,44 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 			}
 		}
 
-		if (isGrass && backEnd.renderPass == RENDERPASS_GRASS)
+		if (isGrassPatches && backEnd.renderPass == RENDERPASS_GRASS_PATCHES)
+		{
+			{
+				vec4_t l8;
+				VectorSet4(l8, GRASS_PATCHES_SURFACE_MINIMUM_SIZE, GRASS_PATCHES_DISTANCE_FROM_ROADS, GRASS_PATCHES_HEIGHT, GRASS_PATCHES_SURFACE_SIZE_DIVIDER);
+				GLSL_SetUniformVec4(sp, UNIFORM_LOCAL8, l8);
+			}
+
+			{
+				vec4_t l12;
+				VectorSet4(l12, GRASS_PATCHES_SIZE_MULTIPLIER_COMMON, GRASS_PATCHES_SIZE_MULTIPLIER_RARE, GRASS_PATCHES_CLUMP_LAYERS, GRASS_PATCHES_LOD_START_RANGE);
+				GLSL_SetUniformVec4(sp, UNIFORM_LOCAL12, l12);
+			}
+
+			if (sp->isBindless)
+			{
+				GLSL_SetBindlessTexture(sp, UNIFORM_STEEPMAP, &tr.whiteImage, 0);
+				GLSL_SetBindlessTexture(sp, UNIFORM_STEEPMAP1, (GRASS2_ENABLED && GRASS2_CONTROL_TEXTURE && GRASS2_CONTROL_TEXTURE != tr.whiteImage) ? &GRASS2_CONTROL_TEXTURE : &tr.blackImage, 0);
+				GLSL_SetBindlessTexture(sp, UNIFORM_STEEPMAP2, (GRASS3_ENABLED && GRASS3_CONTROL_TEXTURE && GRASS3_CONTROL_TEXTURE != tr.whiteImage) ? &GRASS3_CONTROL_TEXTURE : &tr.blackImage, 0);
+				GLSL_SetBindlessTexture(sp, UNIFORM_STEEPMAP3, (GRASS4_ENABLED && GRASS4_CONTROL_TEXTURE && GRASS4_CONTROL_TEXTURE != tr.whiteImage) ? &GRASS4_CONTROL_TEXTURE : &tr.blackImage, 0);
+			}
+			else
+			{
+				GL_BindToTMU(tr.whiteImage, TB_STEEPMAP);
+				GL_BindToTMU((GRASS2_ENABLED && GRASS2_CONTROL_TEXTURE && GRASS2_CONTROL_TEXTURE != tr.whiteImage) ? GRASS2_CONTROL_TEXTURE : tr.blackImage, TB_STEEPMAP1);
+				GL_BindToTMU((GRASS3_ENABLED && GRASS3_CONTROL_TEXTURE && GRASS3_CONTROL_TEXTURE != tr.whiteImage) ? GRASS3_CONTROL_TEXTURE : tr.blackImage, TB_STEEPMAP2);
+				GL_BindToTMU((GRASS4_ENABLED && GRASS4_CONTROL_TEXTURE && GRASS4_CONTROL_TEXTURE != tr.whiteImage) ? GRASS4_CONTROL_TEXTURE : tr.blackImage, TB_STEEPMAP3);
+			}
+
+			vec4_t l13;
+			VectorSet4(l13,
+				0.0,
+				(GRASS2_ENABLED && GRASS2_CONTROL_TEXTURE && GRASS2_CONTROL_TEXTURE != tr.whiteImage) ? 1.0 : 0.0,
+				(GRASS3_ENABLED && GRASS3_CONTROL_TEXTURE && GRASS3_CONTROL_TEXTURE != tr.whiteImage) ? 1.0 : 0.0,
+				(GRASS4_ENABLED && GRASS4_CONTROL_TEXTURE && GRASS4_CONTROL_TEXTURE != tr.whiteImage) ? 1.0 : 0.0);
+			GLSL_SetUniformVec4(sp, UNIFORM_LOCAL13, l13);
+		}
+		else if (isGrass && backEnd.renderPass == RENDERPASS_GRASS)
 		{
 			{
 				vec4_t l8;
@@ -4870,10 +5656,20 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 				GLSL_SetUniformVec4(sp, UNIFORM_LOCAL12, l12);
 			}
 
-			GL_BindToTMU((GRASS_ENABLED && GRASS_CONTROL_TEXTURE) ? GRASS_CONTROL_TEXTURE : tr.whiteImage, TB_STEEPMAP);
-			GL_BindToTMU((GRASS2_ENABLED && GRASS2_CONTROL_TEXTURE && GRASS2_CONTROL_TEXTURE != tr.whiteImage) ? GRASS2_CONTROL_TEXTURE : tr.blackImage, TB_STEEPMAP1);
-			GL_BindToTMU((GRASS3_ENABLED && GRASS3_CONTROL_TEXTURE && GRASS3_CONTROL_TEXTURE != tr.whiteImage) ? GRASS3_CONTROL_TEXTURE : tr.blackImage, TB_STEEPMAP2);
-			GL_BindToTMU((GRASS4_ENABLED && GRASS4_CONTROL_TEXTURE && GRASS4_CONTROL_TEXTURE != tr.whiteImage) ? GRASS4_CONTROL_TEXTURE : tr.blackImage, TB_STEEPMAP3);
+			if (sp->isBindless)
+			{
+				GLSL_SetBindlessTexture(sp, UNIFORM_STEEPMAP, (GRASS_ENABLED && GRASS_CONTROL_TEXTURE) ? &GRASS_CONTROL_TEXTURE : &tr.whiteImage, 0);
+				GLSL_SetBindlessTexture(sp, UNIFORM_STEEPMAP1, (GRASS2_ENABLED && GRASS2_CONTROL_TEXTURE && GRASS2_CONTROL_TEXTURE != tr.whiteImage) ? &GRASS2_CONTROL_TEXTURE : &tr.blackImage, 0);
+				GLSL_SetBindlessTexture(sp, UNIFORM_STEEPMAP2, (GRASS3_ENABLED && GRASS3_CONTROL_TEXTURE && GRASS3_CONTROL_TEXTURE != tr.whiteImage) ? &GRASS3_CONTROL_TEXTURE : &tr.blackImage, 0);
+				GLSL_SetBindlessTexture(sp, UNIFORM_STEEPMAP3, (GRASS4_ENABLED && GRASS4_CONTROL_TEXTURE && GRASS4_CONTROL_TEXTURE != tr.whiteImage) ? &GRASS4_CONTROL_TEXTURE : &tr.blackImage, 0);
+			}
+			else
+			{
+				GL_BindToTMU((GRASS_ENABLED && GRASS_CONTROL_TEXTURE) ? GRASS_CONTROL_TEXTURE : tr.whiteImage, TB_STEEPMAP);
+				GL_BindToTMU((GRASS2_ENABLED && GRASS2_CONTROL_TEXTURE && GRASS2_CONTROL_TEXTURE != tr.whiteImage) ? GRASS2_CONTROL_TEXTURE : tr.blackImage, TB_STEEPMAP1);
+				GL_BindToTMU((GRASS3_ENABLED && GRASS3_CONTROL_TEXTURE && GRASS3_CONTROL_TEXTURE != tr.whiteImage) ? GRASS3_CONTROL_TEXTURE : tr.blackImage, TB_STEEPMAP2);
+				GL_BindToTMU((GRASS4_ENABLED && GRASS4_CONTROL_TEXTURE && GRASS4_CONTROL_TEXTURE != tr.whiteImage) ? GRASS4_CONTROL_TEXTURE : tr.blackImage, TB_STEEPMAP3);
+			}
 
 			vec4_t l13;
 			VectorSet4(l13,
@@ -4896,10 +5692,20 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 				VectorSet4(l12, GRASS2_SIZE_MULTIPLIER_COMMON, GRASS2_SIZE_MULTIPLIER_RARE, GRASS2_SIZE_MULTIPLIER_UNDERWATER, GRASS2_LOD_START_RANGE);
 				GLSL_SetUniformVec4(sp, UNIFORM_LOCAL12, l12);
 
-				GL_BindToTMU((GRASS2_ENABLED && GRASS2_CONTROL_TEXTURE) ? GRASS2_CONTROL_TEXTURE : tr.whiteImage, TB_STEEPMAP);
-				GL_BindToTMU((GRASS_ENABLED && GRASS_CONTROL_TEXTURE && GRASS_CONTROL_TEXTURE != tr.whiteImage) ? GRASS_CONTROL_TEXTURE : tr.blackImage, TB_STEEPMAP1);
-				GL_BindToTMU((GRASS3_ENABLED && GRASS3_CONTROL_TEXTURE && GRASS3_CONTROL_TEXTURE != tr.whiteImage) ? GRASS3_CONTROL_TEXTURE : tr.blackImage, TB_STEEPMAP2);
-				GL_BindToTMU((GRASS4_ENABLED && GRASS4_CONTROL_TEXTURE && GRASS4_CONTROL_TEXTURE != tr.whiteImage) ? GRASS4_CONTROL_TEXTURE : tr.blackImage, TB_STEEPMAP3);
+				if (sp->isBindless)
+				{
+					GLSL_SetBindlessTexture(sp, UNIFORM_STEEPMAP, (GRASS2_ENABLED && GRASS2_CONTROL_TEXTURE) ? &GRASS2_CONTROL_TEXTURE : &tr.whiteImage, 0);
+					GLSL_SetBindlessTexture(sp, UNIFORM_STEEPMAP1, (GRASS_ENABLED && GRASS_CONTROL_TEXTURE && GRASS_CONTROL_TEXTURE != tr.whiteImage) ? &GRASS_CONTROL_TEXTURE : &tr.blackImage, 0);
+					GLSL_SetBindlessTexture(sp, UNIFORM_STEEPMAP2, (GRASS3_ENABLED && GRASS3_CONTROL_TEXTURE && GRASS3_CONTROL_TEXTURE != tr.whiteImage) ? &GRASS3_CONTROL_TEXTURE : &tr.blackImage, 0);
+					GLSL_SetBindlessTexture(sp, UNIFORM_STEEPMAP3, (GRASS4_ENABLED && GRASS4_CONTROL_TEXTURE && GRASS4_CONTROL_TEXTURE != tr.whiteImage) ? &GRASS4_CONTROL_TEXTURE : &tr.blackImage, 0);
+				}
+				else
+				{
+					GL_BindToTMU((GRASS2_ENABLED && GRASS2_CONTROL_TEXTURE) ? GRASS2_CONTROL_TEXTURE : tr.whiteImage, TB_STEEPMAP);
+					GL_BindToTMU((GRASS_ENABLED && GRASS_CONTROL_TEXTURE && GRASS_CONTROL_TEXTURE != tr.whiteImage) ? GRASS_CONTROL_TEXTURE : tr.blackImage, TB_STEEPMAP1);
+					GL_BindToTMU((GRASS3_ENABLED && GRASS3_CONTROL_TEXTURE && GRASS3_CONTROL_TEXTURE != tr.whiteImage) ? GRASS3_CONTROL_TEXTURE : tr.blackImage, TB_STEEPMAP2);
+					GL_BindToTMU((GRASS4_ENABLED && GRASS4_CONTROL_TEXTURE && GRASS4_CONTROL_TEXTURE != tr.whiteImage) ? GRASS4_CONTROL_TEXTURE : tr.blackImage, TB_STEEPMAP3);
+				}
 
 				vec4_t l13;
 				VectorSet4(l13,
@@ -4924,10 +5730,20 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 				GLSL_SetUniformVec4(sp, UNIFORM_LOCAL12, l12);
 			}
 
-			GL_BindToTMU((GRASS3_ENABLED && GRASS3_CONTROL_TEXTURE) ? GRASS3_CONTROL_TEXTURE : tr.whiteImage, TB_STEEPMAP);
-			GL_BindToTMU((GRASS_ENABLED && GRASS_CONTROL_TEXTURE && GRASS_CONTROL_TEXTURE != tr.whiteImage) ? GRASS_CONTROL_TEXTURE : tr.blackImage, TB_STEEPMAP1);
-			GL_BindToTMU((GRASS2_ENABLED && GRASS2_CONTROL_TEXTURE && GRASS2_CONTROL_TEXTURE != tr.whiteImage) ? GRASS2_CONTROL_TEXTURE : tr.blackImage, TB_STEEPMAP2);
-			GL_BindToTMU((GRASS4_ENABLED && GRASS4_CONTROL_TEXTURE && GRASS4_CONTROL_TEXTURE != tr.whiteImage) ? GRASS4_CONTROL_TEXTURE : tr.blackImage, TB_STEEPMAP3);
+			if (sp->isBindless)
+			{
+				GLSL_SetBindlessTexture(sp, UNIFORM_STEEPMAP, (GRASS3_ENABLED && GRASS3_CONTROL_TEXTURE) ? &GRASS3_CONTROL_TEXTURE : &tr.whiteImage, 0);
+				GLSL_SetBindlessTexture(sp, UNIFORM_STEEPMAP1, (GRASS_ENABLED && GRASS_CONTROL_TEXTURE && GRASS_CONTROL_TEXTURE != tr.whiteImage) ? &GRASS_CONTROL_TEXTURE : &tr.blackImage, 0);
+				GLSL_SetBindlessTexture(sp, UNIFORM_STEEPMAP2, (GRASS2_ENABLED && GRASS2_CONTROL_TEXTURE && GRASS2_CONTROL_TEXTURE != tr.whiteImage) ? &GRASS2_CONTROL_TEXTURE : &tr.blackImage, 0);
+				GLSL_SetBindlessTexture(sp, UNIFORM_STEEPMAP3, (GRASS4_ENABLED && GRASS4_CONTROL_TEXTURE && GRASS4_CONTROL_TEXTURE != tr.whiteImage) ? &GRASS4_CONTROL_TEXTURE : &tr.blackImage, 0);
+			}
+			else
+			{
+				GL_BindToTMU((GRASS3_ENABLED && GRASS3_CONTROL_TEXTURE) ? GRASS3_CONTROL_TEXTURE : tr.whiteImage, TB_STEEPMAP);
+				GL_BindToTMU((GRASS_ENABLED && GRASS_CONTROL_TEXTURE && GRASS_CONTROL_TEXTURE != tr.whiteImage) ? GRASS_CONTROL_TEXTURE : tr.blackImage, TB_STEEPMAP1);
+				GL_BindToTMU((GRASS2_ENABLED && GRASS2_CONTROL_TEXTURE && GRASS2_CONTROL_TEXTURE != tr.whiteImage) ? GRASS2_CONTROL_TEXTURE : tr.blackImage, TB_STEEPMAP2);
+				GL_BindToTMU((GRASS4_ENABLED && GRASS4_CONTROL_TEXTURE && GRASS4_CONTROL_TEXTURE != tr.whiteImage) ? GRASS4_CONTROL_TEXTURE : tr.blackImage, TB_STEEPMAP3);
+			}
 
 			vec4_t l13;
 			VectorSet4(l13,
@@ -4951,10 +5767,20 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 				GLSL_SetUniformVec4(sp, UNIFORM_LOCAL12, l12);
 			}
 
-			GL_BindToTMU((GRASS4_ENABLED && GRASS4_CONTROL_TEXTURE) ? GRASS4_CONTROL_TEXTURE : tr.whiteImage, TB_STEEPMAP);
-			GL_BindToTMU((GRASS_ENABLED && GRASS_CONTROL_TEXTURE && GRASS_CONTROL_TEXTURE != tr.whiteImage) ? GRASS_CONTROL_TEXTURE : tr.blackImage, TB_STEEPMAP1);
-			GL_BindToTMU((GRASS2_ENABLED && GRASS2_CONTROL_TEXTURE && GRASS2_CONTROL_TEXTURE != tr.whiteImage) ? GRASS2_CONTROL_TEXTURE : tr.blackImage, TB_STEEPMAP2);
-			GL_BindToTMU((GRASS3_ENABLED && GRASS3_CONTROL_TEXTURE && GRASS3_CONTROL_TEXTURE != tr.whiteImage) ? GRASS3_CONTROL_TEXTURE : tr.blackImage, TB_STEEPMAP3);
+			if (sp->isBindless)
+			{
+				GLSL_SetBindlessTexture(sp, UNIFORM_STEEPMAP, (GRASS4_ENABLED && GRASS4_CONTROL_TEXTURE) ? &GRASS4_CONTROL_TEXTURE : &tr.whiteImage, 0);
+				GLSL_SetBindlessTexture(sp, UNIFORM_STEEPMAP1, (GRASS_ENABLED && GRASS_CONTROL_TEXTURE && GRASS_CONTROL_TEXTURE != tr.whiteImage) ? &GRASS_CONTROL_TEXTURE : &tr.blackImage, 0);
+				GLSL_SetBindlessTexture(sp, UNIFORM_STEEPMAP2, (GRASS2_ENABLED && GRASS2_CONTROL_TEXTURE && GRASS2_CONTROL_TEXTURE != tr.whiteImage) ? &GRASS2_CONTROL_TEXTURE : &tr.blackImage, 0);
+				GLSL_SetBindlessTexture(sp, UNIFORM_STEEPMAP3, (GRASS3_ENABLED && GRASS3_CONTROL_TEXTURE && GRASS3_CONTROL_TEXTURE != tr.whiteImage) ? &GRASS3_CONTROL_TEXTURE : &tr.blackImage, 0);
+			}
+			else
+			{
+				GL_BindToTMU((GRASS4_ENABLED && GRASS4_CONTROL_TEXTURE) ? GRASS4_CONTROL_TEXTURE : tr.whiteImage, TB_STEEPMAP);
+				GL_BindToTMU((GRASS_ENABLED && GRASS_CONTROL_TEXTURE && GRASS_CONTROL_TEXTURE != tr.whiteImage) ? GRASS_CONTROL_TEXTURE : tr.blackImage, TB_STEEPMAP1);
+				GL_BindToTMU((GRASS2_ENABLED && GRASS2_CONTROL_TEXTURE && GRASS2_CONTROL_TEXTURE != tr.whiteImage) ? GRASS2_CONTROL_TEXTURE : tr.blackImage, TB_STEEPMAP2);
+				GL_BindToTMU((GRASS3_ENABLED && GRASS3_CONTROL_TEXTURE && GRASS3_CONTROL_TEXTURE != tr.whiteImage) ? GRASS3_CONTROL_TEXTURE : tr.blackImage, TB_STEEPMAP3);
+			}
 
 			vec4_t l13;
 			VectorSet4(l13,
@@ -4998,17 +5824,106 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 
 			GL_Cull(CT_TWO_SIDED);
 		}
-		else if ((isGrass || isGrass2 || isGrass3 || isGrass4) && useTesselation >= 2 /*&& sp == &tr.lightAllSplatShader[2]*/)
+		else if (isGrassPatches && useTesselation >= 2)
+		{
+			vec4_t l8;
+			VectorSet4(l8, GRASS_PATCHES_DISTANCE_FROM_ROADS, 0.0, 0.0, 0.0);
+			GLSL_SetUniformVec4(sp, UNIFORM_LOCAL8, l8);
+		}
+		else if (isGrass && useTesselation >= 2)
 		{
 			vec4_t l8;
 			VectorSet4(l8, GRASS_DISTANCE_FROM_ROADS, 0.0, 0.0, 0.0);
 			GLSL_SetUniformVec4(sp, UNIFORM_LOCAL8, l8);
+		}
+		else if (isGrass2 && useTesselation >= 2)
+		{
+			vec4_t l8;
+			VectorSet4(l8, GRASS2_DISTANCE_FROM_ROADS, 0.0, 0.0, 0.0);
+			GLSL_SetUniformVec4(sp, UNIFORM_LOCAL8, l8);
+		}
+		else if (isGrass3 && useTesselation >= 2)
+		{
+			vec4_t l8;
+			VectorSet4(l8, GRASS3_DISTANCE_FROM_ROADS, 0.0, 0.0, 0.0);
+			GLSL_SetUniformVec4(sp, UNIFORM_LOCAL8, l8);
+		}
+		else if (isGrass4 && useTesselation >= 2)
+		{
+			vec4_t l8;
+			VectorSet4(l8, GRASS4_DISTANCE_FROM_ROADS, 0.0, 0.0, 0.0);
+			GLSL_SetUniformVec4(sp, UNIFORM_LOCAL8, l8);
+		}
+
+		if (isFakeGrass && backEnd.renderPass == RENDERPASS_NONE && !IS_DEPTH_PASS)
+		{// Send shader the avg grass color for above and below ground grasses, so we can draw fake distant grass...
+			vec4_t grassColor, seaGrassColor;
+			VectorClear4(grassColor);
+			VectorClear4(seaGrassColor);
+
+			if (isFakeGrass && tr.grassAliasImage[0])
+			{
+				VectorCopy4(tr.grassAliasImage[0]->averageColor, grassColor);
+				grassColor[3] = 1.0;
+			}
+
+			if (isFakeGrass && tr.seaGrassAliasImage[0])
+			{
+				VectorCopy4(tr.seaGrassAliasImage[0]->averageColor, seaGrassColor);
+				seaGrassColor[3] = 1.0;
+			}
+
+			GLSL_SetUniformVec4(sp, UNIFORM_LOCAL14, grassColor);
+			GLSL_SetUniformVec4(sp, UNIFORM_LOCAL15, seaGrassColor);
+
+			vec4_t vec;
+			VectorSet4(vec, isFakeGrass ? 1.0f : 0.0f, GRASS_DISTANCE, GRASS_MAX_SLOPE, FAKE_GRASS_MINALPHA);
+			GLSL_SetUniformVec4(sp, UNIFORM_LOCAL16, vec);
+
+			VectorSet4(vec, FAKE_GRASS_SCALE, FAKE_GRASS_SCALE_UNDERWATER, FAKE_GRASS_COLORMULT, FAKE_GRASS_COLORMULT_UNDERWATER);
+			GLSL_SetUniformVec4(sp, UNIFORM_LOCAL17, vec);
+
+			VectorSet4(vec, FAKE_GRASS_MINALPHA_UNDERWATER, GRASS_HEIGHT*GRASS_SIZE_MULTIPLIER_UNDERWATER, FAKE_GRASS_ENABLED, 0.0);
+			GLSL_SetUniformVec4(sp, UNIFORM_LOCAL18, vec);
+
+			if (sp->isBindless)
+			{
+				GLSL_SetBindlessTexture(sp, UNIFORM_TEXTUREMAP, &tr.random2KImage[0], 0);
+			}
+			else
+			{
+				GLSL_SetUniformInt(sp, UNIFORM_TEXTUREMAP, TB_SPECULARMAP);
+				GL_BindToTMU(tr.random2KImage[0], TB_SPECULARMAP);
+			}
+
+			/*if (isFakeGrass)
+			{
+				ri->Printf(PRINT_WARNING, "isFakeGrass: color %f %f %f %f. seaColor %f %f %f %f. dist: %f.\n"
+					, grassColor[0], grassColor[1], grassColor[2], grassColor[3]
+					, seaGrassColor[0], seaGrassColor[1], seaGrassColor[2], seaGrassColor[3]
+					, GRASS_DISTANCE);
+			}*/
+		}
+		else
+		{
+			vec4_t zero;
+			VectorClear(zero);
+			GLSL_SetUniformVec4(sp, UNIFORM_LOCAL14, zero);
+			GLSL_SetUniformVec4(sp, UNIFORM_LOCAL15, zero);
+			GLSL_SetUniformVec4(sp, UNIFORM_LOCAL16, zero);
+			GLSL_SetUniformVec4(sp, UNIFORM_LOCAL17, zero);
+			GLSL_SetUniformVec4(sp, UNIFORM_LOCAL18, zero);
 		}
 
 		/*if (tr.viewParms.flags & VPF_DEPTHSHADOW)
 		{// Shadow draws are always 2 sided, to cull sun from behind the object.
 			GL_Cull(CT_TWO_SIDED);
 		}*/
+
+		if (!is2D && (pStage->glow || pStage->glowMapped))
+		{
+			backEnd.pc.c_glowDraws++;
+		}
 
 		UpdateTexCoords(pStage);
 
@@ -5017,6 +5932,11 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 		//
 		// draw
 		//
+
+		if (sp->isBindless)
+		{
+			GLSL_BindlessUpdate(sp);
+		}
 
 		if (input->multiDrawPrimitives)
 		{
@@ -5052,178 +5972,204 @@ void RB_ExternalIterateStagesGeneric( shaderCommands_t *input )
 
 static void RB_RenderShadowmap(shaderCommands_t *input)
 {
-	int deformGen;
-	float deformParams[7];
+	if (!(backEnd.refdef.rdflags & RDF_NOWORLDMODEL)
+		&& r_sunlightMode->integer >= 2
+		&& tr.screenShadowFbo
+		&& (backEnd.viewParms.flags & VPF_USESUNLIGHT)
+		&& ((backEnd.viewParms.flags & VPF_DEPTHSHADOW) || (backEnd.viewParms.flags & VPF_SHADOWPASS))
+		&& SHADOWS_ENABLED
+		&& RB_NightScale() < 1.0 // Can ignore rendering shadows at night...
+		&& (r_deferredLighting->integer || r_fastLighting->integer))
+	{
+		int deformGen;
+		float deformParams[7];
 
-	ComputeDeformValues(&deformGen, deformParams);
+		ComputeDeformValues(&deformGen, deformParams);
 
-	int useTesselation = 0;
+		int useTesselation = 0;
 
 #if 0
-	float tessInner = 0.0;
-	float tessOuter = 0.0;
-	float tessAlpha = 0.0;
+		float tessInner = 0.0;
+		float tessOuter = 0.0;
+		float tessAlpha = 0.0;
 
-	if (r_tessellation->integer)
-	{
+		if (r_tessellation->integer)
+		{
 #ifdef __TERRAIN_TESSELATION__
-		if (TERRAIN_TESSELLATION_ENABLED
-			&& r_terrainTessellation->integer
-			&& r_terrainTessellationMax->value >= 2.0
-			&& (tess.shader->isGrass || RB_ShouldUseTerrainTessellation(tess.shader->materialType)))
-		{// Always add tesselation to ground surfaces...
-			tess.shader->tesselation = qfalse;
-
-			if (TERRAIN_TESSELLATION_3D_ENABLED)
-			{
-				useTesselation = 3;
-			}
-			else
-			{
-				useTesselation = 2;
-			}
-
-			tessInner = max(min(r_terrainTessellationMax->value, TERRAIN_TESSELLATION_LEVEL), 2.0);
-			tessOuter = tessInner;
-			tessAlpha = TERRAIN_TESSELLATION_OFFSET;
-		}
-		else
-#endif //__TERRAIN_TESSELATION__
-		if (input->shader->tesselation
-			&& input->shader->tesselationLevel > 1.0
-			&& input->shader->tesselationAlpha != 0.0)
-		{
-			useTesselation = 1;
-		}
-	}
-#endif
-
-	{
-		shaderProgram_t *sp = &tr.shadowmapShader[useTesselation];
-
-		vec4_t vector;
-
-		GLSL_BindProgram(sp);
-
-		GLSL_SetUniformMatrix16(sp, UNIFORM_MODELVIEWPROJECTIONMATRIX, glState.modelviewProjection);
-		GLSL_SetUniformMatrix16(sp, UNIFORM_MODELMATRIX, backEnd.ori.modelMatrix);
-
-		GLSL_SetUniformFloat(sp, UNIFORM_VERTEXLERP, glState.vertexAttribsInterpolation);
-
-		GLSL_SetUniformInt(sp, UNIFORM_DEFORMGEN, deformGen);
-		if (deformGen != DGEN_NONE)
-		{
-			GLSL_SetUniformFloat7(sp, UNIFORM_DEFORMPARAMS, deformParams);
-			GLSL_SetUniformFloat(sp, UNIFORM_TIME, tess.shaderTime);
-		}
-
-		VectorCopy(backEnd.viewParms.ori.origin, vector);
-		vector[3] = 1.0f;
-		GLSL_SetUniformVec4(sp, UNIFORM_LIGHTORIGIN, vector);
-		GLSL_SetUniformFloat(sp, UNIFORM_LIGHTRADIUS, backEnd.viewParms.zFar);
-
-#if 0
-		if (useTesselation)
-		{
-			vector[0] = 0;
-			vector[1] = 0;
-			vector[2] = 0;
-			vector[3] = useTesselation ? TERRAIN_TESSELLATION_OFFSET + 1.0 : 0.0;
-			GLSL_SetUniformVec4(sp, UNIFORM_LOCAL1, vector);
-
-			vec4_t l10;
-			VectorSet4(l10, tessAlpha, tessInner, tessOuter, TERRAIN_TESSELLATION_MIN_SIZE);
-			GLSL_SetUniformVec4(sp, UNIFORM_TESSELATION_INFO, l10);
-
-			if (useTesselation == 3)
-			{
-				GLSL_SetUniformVec4(sp, UNIFORM_TESSELATION_3D_INFO, TERRAIN_TESSELLATION_3D_OFFSET);
-			}
-
-#ifdef __TERRAIN_TESSELATION__
-			float TERRAIN_TESS_OFFSET = 0.0;
-
-			// Check if this is grass on a tessellated terrain, if so, we want to lower the verts in the vert shader by the maximum possible tessellation height...
 			if (TERRAIN_TESSELLATION_ENABLED
-				&& r_tessellation->integer
 				&& r_terrainTessellation->integer
-				&& r_terrainTessellationMax->value >= 2.0)
-			{// When tessellating terrain, we need to drop the grasses down lower to allow for the offset...
-				TERRAIN_TESS_OFFSET = TERRAIN_TESSELLATION_OFFSET;
+				&& r_terrainTessellationMax->value >= 2.0
+				&& (tess.shader->isGrass || RB_ShouldUseTerrainTessellation(tess.shader->materialType)))
+			{// Always add tesselation to ground surfaces...
+				tess.shader->tesselation = qfalse;
 
-				if (useTesselation == 3)
+				if (TERRAIN_TESSELLATION_3D_ENABLED)
 				{
-					TERRAIN_TESS_OFFSET = TERRAIN_TESSELLATION_3D_OFFSET[2];
-				}
-
-				if (tr.roadsMapImage != tr.blackImage)
-				{
-					GL_BindToTMU(tr.roadsMapImage, TB_ROADSCONTROLMAP);
+					useTesselation = 3;
 				}
 				else
 				{
-					GL_BindToTMU(tr.blackImage, TB_ROADSCONTROLMAP);
+					useTesselation = 2;
 				}
+
+				tessInner = max(min(r_terrainTessellationMax->value, TERRAIN_TESSELLATION_LEVEL), 2.0);
+				tessOuter = tessInner;
+				tessAlpha = TERRAIN_TESSELLATION_OFFSET;
 			}
-
-			GLSL_SetUniformFloat(sp, UNIFORM_ZFAR, (ENABLE_OCCLUSION_CULLING && r_occlusion->integer) ? tr.occlusionZfar : backEnd.viewParms.zFar);
-
-			vec4_t l3;
-			VectorSet4(l3, 0.0, 0.0, 0.0, (tr.roadsMapImage != tr.blackImage) ? 1.0 : 0.0);
-			GLSL_SetUniformVec4(sp, UNIFORM_LOCAL3, l3);
-
-			vec4_t l8;
-			VectorSet4(l8, GRASS_DISTANCE_FROM_ROADS, 0.0, 0.0, 0.0);
-			GLSL_SetUniformVec4(sp, UNIFORM_LOCAL8, l8);
-
-			if (useTesselation == 3)
-			{
-				GLSL_SetUniformVec4(sp, UNIFORM_TESSELATION_3D_INFO, TERRAIN_TESSELLATION_3D_OFFSET);
-			}
-
-			{
-				vec4_t l12;
-				VectorSet4(l12, TERRAIN_TESS_OFFSET, GRASS_DISTANCE_FROM_ROADS, 0.0, 0.0);
-				GLSL_SetUniformVec4(sp, UNIFORM_LOCAL12, l12);
-			}
-
-			{
-				extern vec3_t		MAP_INFO_MINS;
-				extern vec3_t		MAP_INFO_MAXS;
-				extern vec3_t		MAP_INFO_SIZE;
-
-				vec4_t loc;
-				VectorSet4(loc, MAP_INFO_MINS[0], MAP_INFO_MINS[1], MAP_INFO_MINS[2], 0.0);
-				GLSL_SetUniformVec4(sp, UNIFORM_MINS, loc);
-
-				VectorSet4(loc, MAP_INFO_MAXS[0], MAP_INFO_MAXS[1], MAP_INFO_MAXS[2], 0.0);
-				GLSL_SetUniformVec4(sp, UNIFORM_MAXS, loc);
-
-				VectorSet4(loc, MAP_INFO_SIZE[0], MAP_INFO_SIZE[1], MAP_INFO_SIZE[2], 0.0);
-				GLSL_SetUniformVec4(sp, UNIFORM_MAPINFO, loc);
-			}
+			else
 #endif //__TERRAIN_TESSELATION__
+				if (input->shader->tesselation
+					&& input->shader->tesselationLevel > 1.0
+					&& input->shader->tesselationAlpha != 0.0)
+				{
+					useTesselation = 1;
+				}
 		}
 #endif
 
-		GL_State( 0 );
-
-		//
-		// do multitexture
-		//
-		//if ( pStage->glslShaderGroup )
 		{
-			//
-			// draw
-			//
+			shaderProgram_t *sp = &tr.shadowFillShader[useTesselation];
 
-			if (input->multiDrawPrimitives)
+			vec4_t vector;
+
+			GLSL_BindProgram(sp);
+
+			GLSL_SetUniformMatrix16(sp, UNIFORM_MODELVIEWPROJECTIONMATRIX, glState.modelviewProjection);
+			GLSL_SetUniformMatrix16(sp, UNIFORM_MODELMATRIX, backEnd.ori.modelMatrix);
+
+			GLSL_SetUniformFloat(sp, UNIFORM_VERTEXLERP, glState.vertexAttribsInterpolation);
+
+			GLSL_SetUniformInt(sp, UNIFORM_DEFORMGEN, deformGen);
+			if (deformGen != DGEN_NONE)
 			{
-				R_DrawMultiElementsVBO(input->multiDrawPrimitives, input->multiDrawMinIndex, input->multiDrawMaxIndex, input->multiDrawNumIndexes, input->multiDrawFirstIndex, input->numVertexes, useTesselation > 0 ? qtrue : qfalse);
+				GLSL_SetUniformFloat7(sp, UNIFORM_DEFORMPARAMS, deformParams);
+				GLSL_SetUniformFloat(sp, UNIFORM_TIME, tess.shaderTime);
 			}
-			else
+
+			VectorCopy(backEnd.viewParms.ori.origin, vector);
+			vector[3] = 1.0f;
+			GLSL_SetUniformVec4(sp, UNIFORM_LIGHTORIGIN, vector);
+			GLSL_SetUniformFloat(sp, UNIFORM_LIGHTRADIUS, backEnd.viewParms.zFar);
+
+#if 0
+			if (useTesselation)
 			{
-				R_DrawElementsVBO(input->numIndexes, input->firstIndex, input->minIndex, input->maxIndex, input->numVertexes, useTesselation > 0 ? qtrue : qfalse);
+				vector[0] = 0;
+				vector[1] = 0;
+				vector[2] = 0;
+				vector[3] = useTesselation ? TERRAIN_TESSELLATION_OFFSET + 1.0 : 0.0;
+				GLSL_SetUniformVec4(sp, UNIFORM_LOCAL1, vector);
+
+				vec4_t l10;
+				VectorSet4(l10, tessAlpha, tessInner, tessOuter, TERRAIN_TESSELLATION_MIN_SIZE);
+				GLSL_SetUniformVec4(sp, UNIFORM_TESSELATION_INFO, l10);
+
+				if (useTesselation == 3)
+				{
+					GLSL_SetUniformVec4(sp, UNIFORM_TESSELATION_3D_INFO, TERRAIN_TESSELLATION_3D_OFFSET);
+				}
+
+#ifdef __TERRAIN_TESSELATION__
+				float TERRAIN_TESS_OFFSET = 0.0;
+
+				// Check if this is grass on a tessellated terrain, if so, we want to lower the verts in the vert shader by the maximum possible tessellation height...
+				if (TERRAIN_TESSELLATION_ENABLED
+					&& r_tessellation->integer
+					&& r_terrainTessellation->integer
+					&& r_terrainTessellationMax->value >= 2.0)
+				{// When tessellating terrain, we need to drop the grasses down lower to allow for the offset...
+					TERRAIN_TESS_OFFSET = TERRAIN_TESSELLATION_OFFSET;
+
+					if (useTesselation == 3)
+					{
+						TERRAIN_TESS_OFFSET = TERRAIN_TESSELLATION_3D_OFFSET[2];
+					}
+
+					if (sp->isBindless)
+					{
+						if (tr.roadsMapImage && tr.roadsMapImage != tr.blackImage)
+						{
+							GLSL_SetBindlessTexture(sp, UNIFORM_ROADSCONTROLMAP, &tr.roadsMapImage, 0);
+						}
+						else
+						{
+							GLSL_SetBindlessTexture(sp, UNIFORM_ROADSCONTROLMAP, &tr.blackImage, 0);
+						}
+
+						GLSL_BindlessUpdate(sp);
+					}
+					else
+					{
+						if (tr.roadsMapImage && tr.roadsMapImage != tr.blackImage)
+						{
+							GL_BindToTMU(tr.roadsMapImage, TB_ROADSCONTROLMAP);
+						}
+						else
+						{
+							GL_BindToTMU(tr.blackImage, TB_ROADSCONTROLMAP);
+						}
+					}
+				}
+
+				GLSL_SetUniformFloat(sp, UNIFORM_ZFAR, (ENABLE_OCCLUSION_CULLING && r_occlusion->integer) ? tr.occlusionZfar : backEnd.viewParms.zFar);
+
+				vec4_t l3;
+				VectorSet4(l3, 0.0, 0.0, 0.0, (tr.roadsMapImage != tr.blackImage) ? 1.0 : 0.0);
+				GLSL_SetUniformVec4(sp, UNIFORM_LOCAL3, l3);
+
+				vec4_t l8;
+				VectorSet4(l8, GRASS_DISTANCE_FROM_ROADS, 0.0, 0.0, 0.0);
+				GLSL_SetUniformVec4(sp, UNIFORM_LOCAL8, l8);
+
+				if (useTesselation == 3)
+				{
+					GLSL_SetUniformVec4(sp, UNIFORM_TESSELATION_3D_INFO, TERRAIN_TESSELLATION_3D_OFFSET);
+				}
+
+				{
+					vec4_t l12;
+					VectorSet4(l12, TERRAIN_TESS_OFFSET, GRASS_DISTANCE_FROM_ROADS, 0.0, 0.0);
+					GLSL_SetUniformVec4(sp, UNIFORM_LOCAL12, l12);
+				}
+
+				{
+					extern vec3_t		MAP_INFO_MINS;
+					extern vec3_t		MAP_INFO_MAXS;
+					extern vec3_t		MAP_INFO_SIZE;
+
+					vec4_t loc;
+					VectorSet4(loc, MAP_INFO_MINS[0], MAP_INFO_MINS[1], MAP_INFO_MINS[2], 0.0);
+					GLSL_SetUniformVec4(sp, UNIFORM_MINS, loc);
+
+					VectorSet4(loc, MAP_INFO_MAXS[0], MAP_INFO_MAXS[1], MAP_INFO_MAXS[2], 0.0);
+					GLSL_SetUniformVec4(sp, UNIFORM_MAXS, loc);
+
+					VectorSet4(loc, MAP_INFO_SIZE[0], MAP_INFO_SIZE[1], MAP_INFO_SIZE[2], 0.0);
+					GLSL_SetUniformVec4(sp, UNIFORM_MAPINFO, loc);
+				}
+#endif //__TERRAIN_TESSELATION__
+			}
+#endif
+
+			GL_State(0);
+
+			//
+			// do multitexture
+			//
+			//if ( pStage->glslShaderGroup )
+			{
+				//
+				// draw
+				//
+
+				if (input->multiDrawPrimitives)
+				{
+					R_DrawMultiElementsVBO(input->multiDrawPrimitives, input->multiDrawMinIndex, input->multiDrawMaxIndex, input->multiDrawNumIndexes, input->multiDrawFirstIndex, input->numVertexes, useTesselation > 0 ? qtrue : qfalse);
+				}
+				else
+				{
+					R_DrawElementsVBO(input->numIndexes, input->firstIndex, input->minIndex, input->maxIndex, input->numVertexes, useTesselation > 0 ? qtrue : qfalse);
+				}
 			}
 		}
 	}

@@ -556,7 +556,9 @@ void RE_AddRefEntityToScene(const refEntity_t *ent) {
 		return;
 	}
 	if (r_numentities >= MAX_REFENTITIES) {
+#ifdef __DEVELOPER_MODE__
 		ri->Printf(PRINT_DEVELOPER, "RE_AddRefEntityToScene: Dropping refEntity, reached MAX_REFENTITIES\n");
+#endif //__DEVELOPER_MODE__
 		return;
 	}
 
@@ -1438,7 +1440,7 @@ void RE_RenderScene(const refdef_t *fd) {
 		&& !backEnd.depthFill
 		&& SHADOWS_ENABLED
 		&& RB_NightScale() < 1.0 // Can ignore rendering shadows at night...
-		&& r_deferredLighting->integer)
+		&& (r_deferredLighting->integer || r_fastLighting->integer))
 	{
 		vec4_t lightDir;
 
@@ -1491,11 +1493,13 @@ void RE_RenderScene(const refdef_t *fd) {
 		// Always update close shadows, so players/npcs moving around get shadows, even if the player's view doesn't change...
 		R_RenderSunShadowMaps(fd, 0, lightDir, lightHeight, lightOrigin);
 		R_RenderSunShadowMaps(fd, 1, lightDir, lightHeight, lightOrigin);
+		R_RenderSunShadowMaps(fd, 2, lightDir, lightHeight, lightOrigin);
+		R_RenderSunShadowMaps(fd, 3, lightDir, lightHeight, lightOrigin);
 
 		// Timed updates for distant shadows, or forced by view change...
 		if (nowTime >= NEXT_SHADOWMAP_UPDATE[0] || forceUpdate)
 		{
-			R_RenderSunShadowMaps(fd, 2, lightDir, lightHeight, lightOrigin);
+			R_RenderSunShadowMaps(fd, 4, lightDir, lightHeight, lightOrigin);
 			//NEXT_SHADOWMAP_UPDATE[0] = nowTime + 5000;
 			NEXT_SHADOWMAP_UPDATE[0] = nowTime + 10000;
 
@@ -1532,19 +1536,31 @@ void RE_RenderScene(const refdef_t *fd) {
 #endif //__REALTIME_CUBEMAP__
 
 #ifdef __REALTIME_CUBEMAP__
-	if (r_cubeMapping->integer && !r_lowVram->integer && Distance(backEnd.refdef.vieworg, backEnd.refdef.realtimeCubemapOrigin) > 0.0)
+	if (!(fd->rdflags & RDF_NOWORLDMODEL)
+		&& r_cubeMapping->integer 
+		&& !r_lowVram->integer 
+		&& !backEnd.depthFill
+		/*&& Distance(tr.refdef.vieworg, backEnd.refdef.realtimeCubemapOrigin) > 0.0*/ /* FIXME - Skip when unneeded */)
 	{
+		vec3_t finalPos;
+		VectorCopy(tr.refdef.vieworg, finalPos);
+
+		VectorCopy(finalPos, tr.refdef.realtimeCubemapOrigin);
+		VectorCopy(finalPos, backEnd.refdef.realtimeCubemapOrigin);
+
 		for (int j = 0; j < 6; j++)
 		{
 			extern void R_RenderCubemapSideRealtime(vec3_t origin, int cubemapSide, qboolean subscene);
-			vec3_t finalPos;
-			VectorCopy(backEnd.refdef.vieworg, finalPos);
-
-			VectorCopy(finalPos, tr.refdef.realtimeCubemapOrigin);
-			VectorCopy(finalPos, backEnd.refdef.realtimeCubemapOrigin);
-
 			R_RenderCubemapSideRealtime(finalPos, j, qtrue);
 		}
+
+		//tr.refdef.realtimeCubemapRendered = qtrue;
+		//backEnd.refdef.realtimeCubemapRendered = qtrue;
+	}
+	else
+	{
+		//tr.refdef.realtimeCubemapRendered = qfalse;
+		//backEnd.refdef.realtimeCubemapRendered = qfalse;
 	}
 #endif //__REALTIME_CUBEMAP__
 
@@ -1578,7 +1594,7 @@ void RE_RenderScene(const refdef_t *fd) {
 		&& !backEnd.depthFill
 		&& SHADOWS_ENABLED
 		&& RB_NightScale() < 1.0 // Can ignore rendering shadows at night...
-		&& r_deferredLighting->integer)
+		&& (r_deferredLighting->integer || r_fastLighting->integer))
 	{
 		parms.flags = VPF_USESUNLIGHT;
 	}

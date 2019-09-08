@@ -1,4 +1,4 @@
-/*
+﻿/*
 ===========================================================================
 Copyright (C) 2006-2009 Robert Beckebans <trebor_7@users.sourceforge.net>
 
@@ -142,9 +142,11 @@ extern const char *fallbackShader_foliage_vp;
 extern const char *fallbackShader_foliage_cs;
 extern const char *fallbackShader_foliage_es;
 extern const char *fallbackShader_foliage_gs;
-extern const char *fallbackShader_fur_fp;
-extern const char *fallbackShader_fur_vp;
-extern const char *fallbackShader_fur_gs;
+extern const char *fallbackShader_grassPatches_fp;
+extern const char *fallbackShader_grassPatches_vp;
+extern const char *fallbackShader_grassPatches_cs;
+extern const char *fallbackShader_grassPatches_es;
+extern const char *fallbackShader_grassPatches_gs;
 extern const char *fallbackShader_grass2_fp;
 extern const char *fallbackShader_grass2_vp;
 extern const char *fallbackShader_grass2_cs;
@@ -194,6 +196,8 @@ extern const char *fallbackShader_txaa_vp;
 extern const char *fallbackShader_txaa_fp;
 extern const char *fallbackShader_fastBlur_vp;
 extern const char *fallbackShader_fastBlur_fp;
+//extern const char *fallbackShader_shadowBlur_vp;
+//extern const char *fallbackShader_shadowBlur_fp;
 extern const char *fallbackShader_distanceBlur_vp;
 extern const char *fallbackShader_distanceBlur_fp;
 extern const char *fallbackShader_dofFocusDepth_vp;
@@ -206,6 +210,8 @@ extern const char *fallbackShader_showNormals_vp;
 extern const char *fallbackShader_showNormals_fp;
 extern const char *fallbackShader_showDepth_vp;
 extern const char *fallbackShader_showDepth_fp;
+extern const char *fallbackShader_fastLighting_vp;
+extern const char *fallbackShader_fastLighting_fp;
 extern const char *fallbackShader_deferredLighting_vp;
 extern const char *fallbackShader_deferredLighting_fp;
 extern const char *fallbackShader_procedural_vp;
@@ -274,7 +280,6 @@ static uniformInfo_t uniformsInfo[] =
 	{ "u_RoadsControlMap", GLSL_INT, 1 },
 	{ "u_RoadMap", GLSL_INT, 1 },
 	{ "u_DetailMap", GLSL_INT, 1 },
-	{ "u_MoonMaps", GLSL_INT, 4 },
 
 	{ "u_ScreenImageMap", GLSL_INT, 1 },
 	{ "u_ScreenDepthMap", GLSL_INT, 1 },
@@ -284,6 +289,8 @@ static uniformInfo_t uniformsInfo[] =
 	{ "u_ShadowMap3", GLSL_INT, 1 },
 	{ "u_ShadowMap4", GLSL_INT, 1 },
 	{ "u_ShadowMap5", GLSL_INT, 1 },
+
+	{ "u_MoonMaps", GLSL_INT, 4 },
 
 	{ "u_ShadowMvp", GLSL_MAT16, 1 },
 	{ "u_ShadowMvp2", GLSL_MAT16, 1 },
@@ -414,6 +421,13 @@ static uniformInfo_t uniformsInfo[] =
 	{ "u_Local11", GLSL_VEC4, 1 },
 	{ "u_Local12", GLSL_VEC4, 1 },
 	{ "u_Local13", GLSL_VEC4, 1 },
+	{ "u_Local14", GLSL_VEC4, 1 },
+	{ "u_Local15", GLSL_VEC4, 1 },
+	{ "u_Local16", GLSL_VEC4, 1 },
+	{ "u_Local17", GLSL_VEC4, 1 },
+	{ "u_Local18", GLSL_VEC4, 1 },
+	{ "u_Local19", GLSL_VEC4, 1 },
+	{ "u_Local20", GLSL_VEC4, 1 },
 
 	{ "u_MoonCount", GLSL_INT, 1 },
 	{ "u_MoonInfos", GLSL_VEC4, 4 },
@@ -440,6 +454,8 @@ static uniformInfo_t uniformsInfo[] =
 	{ "u_vlightDistances", GLSL_FLOAT, 1 },
 	{ "u_vlightColors", GLSL_VEC3, 1 },
 
+	{ "u_GlowMultiplier", GLSL_VEC4, 1 },
+
 	{ "u_Samples", GLSL_INT, 1 },
 	//{ "u_SsdoKernel", GLSL_VEC3, 32 },
 };
@@ -450,7 +466,16 @@ void GLSL_PrintProgramInfoLog(GLuint object, qboolean developerOnly)
 	static char     msgPart[1024];
 	int             maxLength = 0;
 	int             i;
+#ifdef __DEVELOPER_MODE__
 	int             printLevel = developerOnly ? PRINT_DEVELOPER : PRINT_ALL;
+#else //!__DEVELOPER_MODE__
+	int             printLevel = PRINT_ALL;
+
+	if (developerOnly)
+	{
+		return;
+	}
+#endif //__DEVELOPER_MODE__
 
 	qglGetProgramiv(object, GL_INFO_LOG_LENGTH, &maxLength);
 
@@ -493,7 +518,17 @@ void GLSL_PrintShaderInfoLog(GLuint object, qboolean developerOnly)
 	static char     msgPart[1024];
 	int             maxLength = 0;
 	int             i;
+#ifdef __DEVELOPER_MODE__
 	int             printLevel = developerOnly ? PRINT_DEVELOPER : PRINT_ALL;
+#else //!__DEVELOPER_MODE__
+	int             printLevel = PRINT_ALL;
+
+	if (developerOnly)
+	{
+		return;
+	}
+#endif //__DEVELOPER_MODE__
+
 
 	qglGetShaderiv(object, GL_INFO_LOG_LENGTH, &maxLength);
 
@@ -554,68 +589,45 @@ void GLSL_PrintShaderSource(GLuint shader)
 
 qboolean ALLOW_GL_400 = qfalse;
 
-char		GLSL_MAX_VERSION[64] = { 0 };
-
 char *GLSL_GetHighestSupportedVersion(void)
 {
-	if (GLSL_MAX_VERSION[0] == '#') return GLSL_MAX_VERSION;
-
 	ALLOW_GL_400 = qfalse;
 
 	if (glRefConfig.glslMajorVersion >= 4)
 	{
-		if (glRefConfig.glslMajorVersion >= 5)
-			sprintf(GLSL_MAX_VERSION, "#version 500 core\n");
-		else if (glRefConfig.glslMajorVersion >= 4 && glRefConfig.glslMinorVersion >= 20)
-			sprintf(GLSL_MAX_VERSION, "#version 420 core\n");
-		else if (glRefConfig.glslMajorVersion >= 4 && glRefConfig.glslMinorVersion >= 10)
-			sprintf(GLSL_MAX_VERSION, "#version 410 core\n");
-		else
-			sprintf(GLSL_MAX_VERSION, "#version 400 core\n");
-
 		ALLOW_GL_400 = qtrue;
+
+		if (glRefConfig.glslMajorVersion >= 5)
+			return "#version 500 core\n";
+		else if (glRefConfig.glslMajorVersion >= 4 && glRefConfig.glslMinorVersion >= 20)
+			return "#version 420 core\n";
+		else if (glRefConfig.glslMajorVersion >= 4 && glRefConfig.glslMinorVersion >= 10)
+			return "#version 410 core\n";
+		else
+			return "#version 400 core\n";
 	}
 	else
 	{
 		// UQ1: Use the highest level of GL that is supported... Check once and record for all future glsl loading...
-		/*if (glRefConfig.glslMajorVersion >= 5)
-			sprintf(GLSL_MAX_VERSION, "#version 500 core\n");
-			else if (glRefConfig.glslMajorVersion >= 4 && glRefConfig.glslMinorVersion >= 20)
-			sprintf(GLSL_MAX_VERSION, "#version 420 core\n");
-			else if (glRefConfig.glslMajorVersion >= 4 && glRefConfig.glslMinorVersion >= 10)
-			sprintf(GLSL_MAX_VERSION, "#version 410 core\n");
-			else if (glRefConfig.glslMajorVersion >= 4)
-			sprintf(GLSL_MAX_VERSION, "#version 400 core\n");
-			else*/ if (glRefConfig.glslMajorVersion >= 4)
-			{
-				sprintf(GLSL_MAX_VERSION, "#version 400 core\n");
-				ALLOW_GL_400 = qtrue;
-			}
-			else if (glRefConfig.glslMajorVersion >= 3 && glRefConfig.glslMinorVersion >= 30)
-				sprintf(GLSL_MAX_VERSION, "#version 330\n");
-			else if (glRefConfig.glslMajorVersion >= 3 && glRefConfig.glslMinorVersion >= 20)
-				sprintf(GLSL_MAX_VERSION, "#version 320\n");
-			else if (glRefConfig.glslMajorVersion >= 3 && glRefConfig.glslMinorVersion >= 10)
-				sprintf(GLSL_MAX_VERSION, "#version 310\n");
-			else if (glRefConfig.glslMajorVersion >= 3)
-				sprintf(GLSL_MAX_VERSION, "#version 300\n");
-			else if (glRefConfig.glslMajorVersion >= 2 && glRefConfig.glslMinorVersion >= 20)
-				sprintf(GLSL_MAX_VERSION, "#version 220\n");
-			else if (glRefConfig.glslMajorVersion >= 2 && glRefConfig.glslMinorVersion >= 10)
-				sprintf(GLSL_MAX_VERSION, "#version 210\n");
-			else if (glRefConfig.glslMajorVersion >= 2)
-				sprintf(GLSL_MAX_VERSION, "#version 200\n");
-			else //if (glRefConfig.glslMinorVersion >= 50)
-				sprintf(GLSL_MAX_VERSION, "#version 150\n");
-			/*else if (glRefConfig.glslMinorVersion >= 40)
-			sprintf(GLSL_MAX_VERSION, "#version 140\n");
-			else if (glRefConfig.glslMinorVersion >= 30)
-			sprintf(GLSL_MAX_VERSION, "#version 130\n");*/
+		if (glRefConfig.glslMajorVersion >= 3 && glRefConfig.glslMinorVersion >= 30)
+			return "#version 330\n";
+		else if (glRefConfig.glslMajorVersion >= 3 && glRefConfig.glslMinorVersion >= 20)
+			return "#version 320\n";
+		else if (glRefConfig.glslMajorVersion >= 3 && glRefConfig.glslMinorVersion >= 10)
+			return "#version 310\n";
+		else if (glRefConfig.glslMajorVersion >= 3)
+			return "#version 300\n";
+		else if (glRefConfig.glslMajorVersion >= 2 && glRefConfig.glslMinorVersion >= 20)
+			return "#version 220\n";
+		else if (glRefConfig.glslMajorVersion >= 2 && glRefConfig.glslMinorVersion >= 10)
+			return "#version 210\n";
+		else if (glRefConfig.glslMajorVersion >= 2)
+			return "#version 200\n";
+		else
+			return "#version 150\n";
 	}
 
-	ri->Printf(PRINT_WARNING, "GLSL shader version set to highest available version: %s", GLSL_MAX_VERSION);
-
-	return GLSL_MAX_VERSION;
+	return "#version 150\n";
 }
 
 const char glslMaterialsList[] =
@@ -676,79 +688,87 @@ const char glslMaterialsList[] =
 "#define MATERIAL_SUN							1025\n"\
 "\n";
 
-void GLSL_GetShaderHeader(GLenum shaderType, const GLcharARB *extra, char *dest, int size, char *forceVersion)
+void GLSL_GetShaderHeader(GLenum shaderType, const GLcharARB *extra, std::string &dest, char *forceVersion, qboolean bindless)
 {
 	float fbufWidthScale, fbufHeightScale;
 
-	dest[0] = '\0';
+	//dest[0] = '\0';
 
 	if (forceVersion)
-		sprintf(dest, "#version %s\n", forceVersion);
+		dest.append(va("#version %s\n", forceVersion));
 	else
-		//Q_strcat(dest, size, "#version 150 core\n");
-		sprintf(dest, "%s", GLSL_GetHighestSupportedVersion());
+		dest.append(va("%s", GLSL_GetHighestSupportedVersion()));
 
 	fbufWidthScale = 1.0f / ((float)glConfig.vidWidth * r_superSampleMultiplier->value);
 	fbufHeightScale = 1.0f / ((float)glConfig.vidHeight * r_superSampleMultiplier->value);
 
 	if (r_useLowP->integer)
 	{
-		Q_strcat(dest, size, "precision lowp int;\n");
-		Q_strcat(dest, size, "precision lowp float;\n");
+		dest.append("precision lowp int;\n");
+		dest.append("precision lowp float;\n");
 	}
+
+	if (bindless && glRefConfig.bindlessTextures)
+	{
+		dest.append("#define USE_BINDLESS_TEXTURES\n\n");
+		dest.append("#extension GL_ARB_bindless_texture : require\n");
+	}
+
+#ifdef __LIGHTS_UBO__
+	dest.append("#define USE_LIGHTS_UBO\n\n");
+#endif //__LIGHTS_UBO__
 
 	if (shaderType == GL_VERTEX_SHADER)
 	{
-		Q_strcat(dest, size, "#define attribute in\n");
-		Q_strcat(dest, size, "#define varying out\n");
+		dest.append("#define attribute in\n");
+		dest.append("#define varying out\n");
 
 #ifdef __VBO_PACK_COLOR__
-		Q_strcat(dest, size, "#define __VBO_PACK_COLOR__\n");
+		dest.append("#define __VBO_PACK_COLOR__\n");
 #endif //__VBO_PACK_COLOR__
 
 #ifdef __CHEAP_VERTS__
-		Q_strcat(dest, size, "#define __CHEAP_VERTS__\n");
+		dest.append("#define __CHEAP_VERTS__\n");
 #endif //__CHEAP_VERTS__
 
-		Q_strcat(dest, size, glslMaterialsList);
+		dest.append(glslMaterialsList);
 	}
 	else if (shaderType == GL_TESS_CONTROL_SHADER)
 	{
-		Q_strcat(dest, size, va("#ifndef r_FBufScale\n#define r_FBufScale vec2(%f, %f)\n#endif\n", fbufWidthScale, fbufHeightScale));
-		Q_strcat(dest, size, glslMaterialsList);
+		dest.append(va("#ifndef r_FBufScale\n#define r_FBufScale vec2(%f, %f)\n#endif\n", fbufWidthScale, fbufHeightScale));
+		dest.append(glslMaterialsList);
 
 		if (extra)
 		{
-			Q_strcat(dest, size, extra);
+			dest.append(extra);
 		}
 
 		//GLint MaxPatchVertices = 0;
 		//qglGetIntegerv(GL_MAX_PATCH_VERTICES, &MaxPatchVertices);
-		Q_strcat(dest, size, va("#define MAX_PATCH_VERTICES %i\n", 3/*MaxPatchVertices >= 16 ? 16 : 3*/));
+		dest.append(va("#define MAX_PATCH_VERTICES %i\n", 3/*MaxPatchVertices >= 16 ? 16 : 3*/));
 
 		// OK we added a lot of stuff but if we do something bad in the GLSL shaders then we want the proper line
 		// so we have to reset the line counting
-		Q_strcat(dest, size, "#line 0\n");
+		dest.append("#line 0\n");
 		return;
 	}
 	else if (shaderType == GL_TESS_EVALUATION_SHADER)
 	{
-		Q_strcat(dest, size, va("#ifndef r_FBufScale\n#define r_FBufScale vec2(%f, %f)\n#endif\n", fbufWidthScale, fbufHeightScale));
-		Q_strcat(dest, size, glslMaterialsList);
+		dest.append(va("#ifndef r_FBufScale\n#define r_FBufScale vec2(%f, %f)\n#endif\n", fbufWidthScale, fbufHeightScale));
+		dest.append(glslMaterialsList);
 
 		if (extra)
 		{
-			Q_strcat(dest, size, extra);
+			dest.append(extra);
 		}
 
-		Q_strcat(dest, size, "#ifndef M_PI\n#define M_PI 3.14159265358979323846\n#endif\n");
+		dest.append("#ifndef M_PI\n#define M_PI 3.14159265358979323846\n#endif\n");
 
 		//GLint MaxPatchVertices = 0;
 		//qglGetIntegerv(GL_MAX_PATCH_VERTICES, &MaxPatchVertices);
-		Q_strcat(dest, size, va("#define MAX_PATCH_VERTICES %i\n", 3/*MaxPatchVertices >= 16 ? 16 : 3*/));
+		dest.append(va("#define MAX_PATCH_VERTICES %i\n", 3/*MaxPatchVertices >= 16 ? 16 : 3*/));
 
-		Q_strcat(dest, size,
-			va("#ifndef deformGen_t\n"
+		dest.append(va("#ifndef deformGen_t\n"
 				"#define deformGen_t\n"
 				"#define DGEN_WAVE_SIN %i\n"
 				"#define DGEN_WAVE_SQUARE %i\n"
@@ -768,8 +788,7 @@ void GLSL_GetShaderHeader(GLenum shaderType, const GLcharARB *extra, char *dest,
 				DGEN_MOVE,
 				DGEN_PROJECTION_SHADOW));
 
-		Q_strcat(dest, size,
-			va("#ifndef tcGen_t\n"
+		dest.append(va("#ifndef tcGen_t\n"
 				"#define tcGen_t\n"
 				"#define TCGEN_LIGHTMAP %i\n"
 				"#define TCGEN_LIGHTMAP1 %i\n"
@@ -791,36 +810,35 @@ void GLSL_GetShaderHeader(GLenum shaderType, const GLcharARB *extra, char *dest,
 
 		// OK we added a lot of stuff but if we do something bad in the GLSL shaders then we want the proper line
 		// so we have to reset the line counting
-		Q_strcat(dest, size, "#line 0\n");
+		dest.append("#line 0\n");
 		return;
 	}
 	else if (shaderType == GL_GEOMETRY_SHADER)
 	{
-		Q_strcat(dest, size, va("#ifndef r_FBufScale\n#define r_FBufScale vec2(%f, %f)\n#endif\n", fbufWidthScale, fbufHeightScale));
-		Q_strcat(dest, size, glslMaterialsList);
+		dest.append(va("#ifndef r_FBufScale\n#define r_FBufScale vec2(%f, %f)\n#endif\n", fbufWidthScale, fbufHeightScale));
+		dest.append(glslMaterialsList);
 
 		if (extra)
 		{
-			Q_strcat(dest, size, extra);
+			dest.append(extra);
 		}
 
 		// OK we added a lot of stuff but if we do something bad in the GLSL shaders then we want the proper line
 		// so we have to reset the line counting
-		Q_strcat(dest, size, "#line 0\n");
+		dest.append("#line 0\n");
 		return;
 	}
 	else
 	{
-		Q_strcat(dest, size, "#define varying in\n");
+		dest.append("#define varying in\n");
 
-		Q_strcat(dest, size, "out vec4 out_Color;\n");
-		Q_strcat(dest, size, "#define gl_FragColor out_Color\n");
+		dest.append("out vec4 out_Color;\n");
+		dest.append("#define gl_FragColor out_Color\n");
 	}
 
-	Q_strcat(dest, size, "#ifndef M_PI\n#define M_PI 3.14159265358979323846\n#endif\n");
+	dest.append("#ifndef M_PI\n#define M_PI 3.14159265358979323846\n#endif\n");
 
-	Q_strcat(dest, size,
-		va("#ifndef deformGen_t\n"
+	dest.append(va("#ifndef deformGen_t\n"
 		"#define deformGen_t\n"
 		"#define DGEN_WAVE_SIN %i\n"
 		"#define DGEN_WAVE_SQUARE %i\n"
@@ -840,8 +858,7 @@ void GLSL_GetShaderHeader(GLenum shaderType, const GLcharARB *extra, char *dest,
 		DGEN_MOVE,
 		DGEN_PROJECTION_SHADOW));
 
-	Q_strcat(dest, size,
-		va("#ifndef tcGen_t\n"
+	dest.append(va("#ifndef tcGen_t\n"
 		"#define tcGen_t\n"
 		"#define TCGEN_LIGHTMAP %i\n"
 		"#define TCGEN_LIGHTMAP1 %i\n"
@@ -861,15 +878,13 @@ void GLSL_GetShaderHeader(GLenum shaderType, const GLcharARB *extra, char *dest,
 		TCGEN_FOG,
 		TCGEN_VECTOR));
 
-	Q_strcat(dest, size,
-		va("#ifndef colorGen_t\n"
+	dest.append(va("#ifndef colorGen_t\n"
 		"#define colorGen_t\n"
 		"#define CGEN_LIGHTING_DIFFUSE %i\n"
 		"#endif\n",
 		CGEN_LIGHTING_DIFFUSE));
 
-	Q_strcat(dest, size,
-		va("#ifndef alphaGen_t\n"
+	dest.append(va("#ifndef alphaGen_t\n"
 		"#define alphaGen_t\n"
 		"#define AGEN_LIGHTING_SPECULAR %i\n"
 		"#define AGEN_PORTAL %i\n"
@@ -877,8 +892,7 @@ void GLSL_GetShaderHeader(GLenum shaderType, const GLcharARB *extra, char *dest,
 		AGEN_LIGHTING_SPECULAR,
 		AGEN_PORTAL));
 
-	Q_strcat(dest, size,
-		va("#ifndef texenv_t\n"
+	dest.append(va("#ifndef texenv_t\n"
 		"#define texenv_t\n"
 		"#define TEXENV_MODULATE %i\n"
 		"#define TEXENV_ADD %i\n"
@@ -888,40 +902,39 @@ void GLSL_GetShaderHeader(GLenum shaderType, const GLcharARB *extra, char *dest,
 		GL_ADD,
 		GL_REPLACE));
 
-	Q_strcat(dest, size,
-		va("#ifndef colorGenWarzone_t\n"
+	dest.append(va("#ifndef colorGenWarzone_t\n"
 			"#define colorGenWarzone_t\n"
 			"#define CGEN_LIGHTING_WARZONE %i\n"
 			"#endif\n",
 			CGEN_LIGHTING_WARZONE));
 
 	if (!r_lowVram->integer)
-		Q_strcat(dest, size, "#define __HIGH_MTU_AVAILABLE__\n");
+		dest.append("#define __HIGH_MTU_AVAILABLE__\n");
 
 	if (r_lowVram->integer)
-		Q_strcat(dest, size, "#define __LQ_MODE__\n");
+		dest.append("#define __LQ_MODE__\n");
 
-	Q_strcat(dest, size, va("#define MAX_INSTANCED_MODEL_INSTANCES %i\n", MAX_INSTANCED_MODEL_INSTANCES));
+	dest.append(va("#define MAX_INSTANCED_MODEL_INSTANCES %i\n", MAX_INSTANCED_MODEL_INSTANCES));
 
-	Q_strcat(dest, size, va("#define MAX_DEFERRED_LIGHTS %i\n", MAX_DEFERRED_LIGHTS));
-	Q_strcat(dest, size, va("#define MAX_DEFERRED_LIGHT_RANGE %f\n", MAX_DEFERRED_LIGHT_RANGE));
+	dest.append(va("#define MAX_DEFERRED_LIGHTS %i\n", MAX_DEFERRED_LIGHTS));
+	dest.append(va("#define MAX_DEFERRED_LIGHT_RANGE %f\n", MAX_DEFERRED_LIGHT_RANGE));
 
-	Q_strcat(dest, size, va("#ifndef r_FBufScale\n#define r_FBufScale vec2(%f, %f)\n#endif\n", fbufWidthScale, fbufHeightScale));
-	Q_strcat(dest, size, glslMaterialsList);
+	dest.append(va("#ifndef r_FBufScale\n#define r_FBufScale vec2(%f, %f)\n#endif\n", fbufWidthScale, fbufHeightScale));
+	dest.append(glslMaterialsList);
 
 	if (r_normalMappingReal->integer)
 	{
-		Q_strcat(dest, size, "#define __USE_REAL_NORMALMAPS__\n");
+		dest.append("#define __USE_REAL_NORMALMAPS__\n");
 	}
 
 	if (extra)
 	{
-		Q_strcat(dest, size, extra);
+		dest.append(extra);
 	}
 
 	// OK we added a lot of stuff but if we do something bad in the GLSL shaders then we want the proper line
 	// so we have to reset the line counting
-	Q_strcat(dest, size, "#line 0\n");
+	dest.append("#line 0\n");
 }
 
 int GLSL_EnqueueCompileGPUShader(GLuint program, GLuint *prevShader, const GLchar *buffer, int size, GLenum shaderType)
@@ -938,83 +951,6 @@ int GLSL_EnqueueCompileGPUShader(GLuint program, GLuint *prevShader, const GLcha
 	*prevShader = shader;
 
 	return 1;
-}
-
-int GLSL_LoadGPUShaderText(const char *name, const char *fallback,
-	GLenum shaderType, char *dest, int destSize)
-{
-#if 0
-	// UQ1: yeah, don't need this crap.. trying to load a text file into a buffer that may be smaller? dumb!
-	char            filename[128/*MAX_QPATH*/];
-	GLcharARB      *buffer = NULL;
-	const GLcharARB *shaderText = NULL;
-	int             size;
-	int             result;
-
-	if (shaderType == GL_VERTEX_SHADER)
-	{
-		Com_sprintf(filename, sizeof(filename), "glsl/%s_vp.glsl", name);
-	}
-	else if (shaderType == GL_TESS_CONTROL_SHADER)
-	{
-		Com_sprintf(filename, sizeof(filename), "glsl/%s_cp.glsl", name);
-	}
-	else if (shaderType == GL_TESS_EVALUATION_SHADER)
-	{
-		Com_sprintf(filename, sizeof(filename), "glsl/%s_ep.glsl", name);
-	}
-	else if (shaderType == GL_GEOMETRY_SHADER)
-	{
-		Com_sprintf(filename, sizeof(filename), "glsl/%s_gs.glsl", name);
-	}
-	else
-	{
-		Com_sprintf(filename, sizeof(filename), "glsl/%s_fp.glsl", name);
-	}
-
-	ri->Printf(PRINT_DEVELOPER, "...loading '%s'\n", filename);
-	size = ri->FS_ReadFile(filename, (void **)&buffer);
-	if (!buffer || buffer[0] == 0)
-	{
-		if (fallback)
-		{
-			ri->Printf(PRINT_DEVELOPER, "couldn't load, using fallback\n");
-			shaderText = fallback;
-			size = strlen(shaderText);
-		}
-		else
-		{
-			ri->Printf(PRINT_DEVELOPER, "couldn't load!\n");
-			return 0;
-		}
-	}
-	else
-	{
-		shaderText = buffer;
-	}
-
-	if (size > destSize)
-	{
-		result = 0;
-	}
-	else
-	{
-		Q_strncpyz(dest, shaderText, size + 1);
-		result = 1;
-	}
-
-	if (buffer)
-	{
-		ri->FS_FreeFile(buffer);
-	}
-#else
-	int             result = 1;
-	const GLcharARB *shaderText = fallback;
-	int size = strlen(shaderText);
-	Q_strncpyz(dest, shaderText, size + 1);
-#endif
-
-	return result;
 }
 
 void GLSL_LinkProgram(GLuint program)
@@ -1077,20 +1013,21 @@ void GLSL_ShowProgramUniforms(shaderProgram_t *program)
 	{
 		qglGetActiveUniform(program->program, i, sizeof(uniformName), NULL, &size, &type, uniformName);
 
+#ifdef __DEVELOPER_MODE__
 		ri->Printf(PRINT_DEVELOPER, "active uniform: '%s'\n", uniformName);
+#endif //__DEVELOPER_MODE__
 	}
 
 	GLSL_BindProgram(NULL);
 }
 
-int GLSL_BeginLoadGPUShader2(shaderProgram_t * program, const char *name, int attribs, const char *vpCode, const char *fpCode, const char *cpCode, const char *epCode, const char *gsCode)
+int GLSL_BeginLoadGPUShader2(shaderProgram_t * program, std::string name, int attribs, std::string vpCode, std::string fpCode, std::string cpCode, std::string epCode, std::string gsCode, qboolean bindless)
 {
-	size_t nameBufSize = strlen(name) + 1;
-
+#ifdef __DEVELOPER_MODE__
 	ri->Printf(PRINT_DEVELOPER, "^5------- ^7GPU shader^5 -------\n");
+#endif //__DEVELOPER_MODE__
 
-	program->name = (char *)Z_Malloc(nameBufSize, TAG_GENERAL);
-	Q_strncpyz(program->name, name, nameBufSize);
+	program->name = name;
 
 	program->program = qglCreateProgram();
 	program->attribs = attribs;
@@ -1102,20 +1039,27 @@ int GLSL_BeginLoadGPUShader2(shaderProgram_t * program, const char *name, int at
 	program->geometry = qfalse;
 	program->geometryShader = NULL;
 
-	
-	strncpy(program->vertexText, vpCode, sizeof(program->vertexText));
-	if (!(GLSL_EnqueueCompileGPUShader(program->program, &program->vertexShader, vpCode, strlen(vpCode), GL_VERTEX_SHADER)))
+	program->isBindless = bindless;
+
+	// Refresh the bindless block when compiling shaders as well..
+	memset(&program->bindlessBlock, 0, sizeof(program->bindlessBlock));
+	memset(&program->bindlessBlockPrevious, 0, sizeof(program->bindlessBlockPrevious));
+
+	program->vertexText = vpCode;
+	strcpy(program->vertexTextChar, vpCode.c_str());
+	if (!(GLSL_EnqueueCompileGPUShader(program->program, &program->vertexShader, program->vertexText.c_str(), program->vertexText.length(), GL_VERTEX_SHADER)))
 	{
-		ri->Printf(PRINT_ALL, "GLSL_BeginLoadGPUShader2: Unable to load \"%s\" as GL_VERTEX_SHADER\n", name);
+		ri->Printf(PRINT_ALL, "GLSL_BeginLoadGPUShader2: Unable to load \"%s\" as GL_VERTEX_SHADER\n", program->name.c_str());
 		qglDeleteProgram(program->program);
 		return 0;
 	}
 
-	if (cpCode)
+	program->tessControlText = cpCode;
+	if (program->tessControlText.length())
 	{
-		if (!(GLSL_EnqueueCompileGPUShader(program->program, &program->tessControlShader, cpCode, strlen(cpCode), GL_TESS_CONTROL_SHADER)))
+		if (!(GLSL_EnqueueCompileGPUShader(program->program, &program->tessControlShader, program->tessControlText.c_str(), program->tessControlText.length(), GL_TESS_CONTROL_SHADER)))
 		{
-			ri->Printf(PRINT_ALL, "GLSL_BeginLoadGPUShader2: Unable to load \"%s\" as GL_TESS_CONTROL_SHADER\n", name);
+			ri->Printf(PRINT_ALL, "GLSL_BeginLoadGPUShader2: Unable to load \"%s\" as GL_TESS_CONTROL_SHADER\n", program->name.c_str());
 			program->tessControlShader = 0;
 			qglDeleteProgram(program->program);
 			return 0;
@@ -1131,11 +1075,12 @@ int GLSL_BeginLoadGPUShader2(shaderProgram_t * program, const char *name, int at
 		program->tessControlShader = 0;
 	}
 
-	if (epCode)
+	program->tessEvaluationText = epCode;
+	if (program->tessEvaluationText.length())
 	{
-		if (!(GLSL_EnqueueCompileGPUShader(program->program, &program->tessEvaluationShader, epCode, strlen(epCode), GL_TESS_EVALUATION_SHADER)))
+		if (!(GLSL_EnqueueCompileGPUShader(program->program, &program->tessEvaluationShader, program->tessEvaluationText.c_str(), program->tessEvaluationText.length(), GL_TESS_EVALUATION_SHADER)))
 		{
-			ri->Printf(PRINT_ALL, "GLSL_BeginLoadGPUShader2: Unable to load \"%s\" as GL_TESS_EVALUATION_SHADER\n", name);
+			ri->Printf(PRINT_ALL, "GLSL_BeginLoadGPUShader2: Unable to load \"%s\" as GL_TESS_EVALUATION_SHADER\n", program->name.c_str());
 			program->tessEvaluationShader = 0;
 			qglDeleteProgram(program->program);
 			return 0;
@@ -1151,11 +1096,12 @@ int GLSL_BeginLoadGPUShader2(shaderProgram_t * program, const char *name, int at
 		program->tessEvaluationShader = 0;
 	}
 
-	if (gsCode)
+	program->geometryText = gsCode;
+	if (program->geometryText.length())
 	{
-		if (!(GLSL_EnqueueCompileGPUShader(program->program, &program->geometryShader, gsCode, strlen(gsCode), GL_GEOMETRY_SHADER)))
+		if (!(GLSL_EnqueueCompileGPUShader(program->program, &program->geometryShader, program->geometryText.c_str(), program->geometryText.length(), GL_GEOMETRY_SHADER)))
 		{
-			ri->Printf(PRINT_ALL, "GLSL_BeginLoadGPUShader2: Unable to load \"%s\" as GL_GEOMETRY_SHADER\n", name);
+			ri->Printf(PRINT_ALL, "GLSL_BeginLoadGPUShader2: Unable to load \"%s\" as GL_GEOMETRY_SHADER\n", program->name.c_str());
 			program->geometryShader = 0;
 			qglDeleteProgram(program->program);
 			return 0;
@@ -1171,12 +1117,13 @@ int GLSL_BeginLoadGPUShader2(shaderProgram_t * program, const char *name, int at
 		program->geometryShader = 0;
 	}
 
-	strncpy(program->fragText, fpCode, sizeof(program->fragText));
-	if (fpCode)
+	program->fragText = fpCode;
+	strcpy(program->fragTextChar, fpCode.c_str());
+	if (program->fragText.length())
 	{
-		if (!(GLSL_EnqueueCompileGPUShader(program->program, &program->fragmentShader, fpCode, strlen(fpCode), GL_FRAGMENT_SHADER)))
+		if (!(GLSL_EnqueueCompileGPUShader(program->program, &program->fragmentShader, program->fragText.c_str(), program->fragText.length(), GL_FRAGMENT_SHADER)))
 		{
-			ri->Printf(PRINT_ALL, "GLSL_BeginLoadGPUShader2: Unable to load \"%s\" as GL_FRAGMENT_SHADER\n", name);
+			ri->Printf(PRINT_ALL, "GLSL_BeginLoadGPUShader2: Unable to load \"%s\" as GL_FRAGMENT_SHADER\n", program->name.c_str());
 			qglDeleteProgram(program->program);
 			return 0;
 		}
@@ -1613,10 +1560,22 @@ int shaders_next_id;
 shaderProgram_t *shaders[256];
 
 int GLSL_BeginLoadGPUShader(shaderProgram_t * program, const char *name,
-	int attribs, qboolean fragmentShader, qboolean tesselation, qboolean geometry, const GLcharARB *extra, qboolean addHeader,
+	int attribs, qboolean fragmentShader, qboolean tesselation, qboolean geometry, qboolean isBindless, const GLcharARB *extra, qboolean addHeader,
 	char *forceVersion, const char *fallback_vp, const char *fallback_fp, const char *fallback_cp, const char *fallback_ep, const char *fallback_gs)
 {
-	shaders[shaders_next_id++] = program; // register the shader, so we can access them all later
+	qboolean bindless = qfalse;
+
+	if (shaders_next_id + 1 < 256)
+	{
+		shaders[shaders_next_id++] = program; // register the shader, so we can access them all later
+	}
+
+	if (isBindless && glRefConfig.bindlessTextures)
+	{// Only enable if the extensions required exist on the GPU...
+		bindless = qtrue;
+
+		ri->Printf(PRINT_WARNING, "GLSL %s is running bindless.\n", name && name[0] ? name : "unnamed");
+	}
 
 #ifdef __USE_GLSL_SHADER_CACHE__
 	int progId = GLSL_LoadShaderFromCache(program, name);
@@ -1632,6 +1591,8 @@ int GLSL_BeginLoadGPUShader(shaderProgram_t * program, const char *name,
 		program->geometry = qfalse;
 		program->geometryShader = NULL;
 
+		program->isBindless = bindless;
+
 		if (tesselation)
 		{
 			program->tesselation = qtrue;
@@ -1646,133 +1607,77 @@ int GLSL_BeginLoadGPUShader(shaderProgram_t * program, const char *name,
 	}
 #endif //__USE_GLSL_SHADER_CACHE__
 
-	char vpCode[MAX_GLSL_LENGTH];
-	char fpCode[MAX_GLSL_LENGTH];
-	char cpCode[MAX_GLSL_LENGTH];
-	char epCode[MAX_GLSL_LENGTH];
-	char gsCode[MAX_GLSL_LENGTH];
-	char *postHeader;
-	int size;
+	std::string vpCode;
+	std::string fpCode;
+	std::string cpCode;
+	std::string epCode;
+	std::string gsCode;
 
 #ifdef __DEBUG_SHADER_LOAD__
 	ri->Printf(PRINT_WARNING, "Begin GLSL load for %s.\n", name);
 #endif //__DEBUG_SHADER_LOAD__
 
-	size = sizeof(vpCode);
 	if (addHeader)
 	{
-		GLSL_GetShaderHeader(GL_VERTEX_SHADER, extra, vpCode, size, forceVersion);
-		postHeader = &vpCode[strlen(vpCode)];
-		size -= strlen(vpCode);
+		GLSL_GetShaderHeader(GL_VERTEX_SHADER, extra, vpCode, forceVersion, bindless);
+		vpCode += fallback_vp;
 	}
 	else
 	{
-		postHeader = &vpCode[0];
+		vpCode = fallback_vp;
 	}
 
-	if (!GLSL_LoadGPUShaderText(name, fallback_vp, GL_VERTEX_SHADER, postHeader, size))
-	{
-#ifdef __DEBUG_SHADER_LOAD__
-		ri->Printf(PRINT_WARNING, "GLSL_LoadGPUShaderText for %s_vp.\n", name);
-#endif //__DEBUG_SHADER_LOAD__
-		return 0;
-	}
+	//ri->Printf(PRINT_WARNING, "[%s]\n%s\n", name, vpCode.c_str());
 
 	if (tesselation && fallback_cp && fallback_cp[0])
 	{
-		size = sizeof(cpCode);
 		if (addHeader)
 		{
-			GLSL_GetShaderHeader(GL_TESS_CONTROL_SHADER, extra, cpCode, size, forceVersion);
-			postHeader = &cpCode[strlen(cpCode)];
-			size -= strlen(cpCode);
+			GLSL_GetShaderHeader(GL_TESS_CONTROL_SHADER, extra, cpCode, forceVersion, bindless);
+			cpCode += fallback_cp;
 		}
 		else
 		{
-			postHeader = &cpCode[0];
-		}
-
-		//ri->Printf(PRINT_WARNING, "Begin GLSL load GL_TESS_CONTROL_SHADER for %s.\n", name);
-
-		if (!GLSL_LoadGPUShaderText(name, fallback_cp, GL_TESS_CONTROL_SHADER, postHeader, size))
-		{
-#ifdef __DEBUG_SHADER_LOAD__
-			ri->Printf(PRINT_WARNING, "GLSL_LoadGPUShaderText for %s_cp.\n", name);
-#endif //__DEBUG_SHADER_LOAD__
-			return 0;
+			cpCode = fallback_cp;
 		}
 	}
 
 	if (tesselation && fallback_ep && fallback_ep[0])
 	{
-		size = sizeof(epCode);
 		if (addHeader)
 		{
-			GLSL_GetShaderHeader(GL_TESS_EVALUATION_SHADER, extra, epCode, size, forceVersion);
-			postHeader = &epCode[strlen(epCode)];
-			size -= strlen(epCode);
+			GLSL_GetShaderHeader(GL_TESS_EVALUATION_SHADER, extra, epCode, forceVersion, bindless);
+			epCode += fallback_ep;
 		}
 		else
 		{
-			postHeader = &epCode[0];
-		}
-
-		//ri->Printf(PRINT_WARNING, "Begin GLSL load GL_TESS_EVALUATION_SHADER for %s.\n", name);
-
-		if (!GLSL_LoadGPUShaderText(name, fallback_ep, GL_TESS_EVALUATION_SHADER, postHeader, size))
-		{
-#ifdef __DEBUG_SHADER_LOAD__
-			ri->Printf(PRINT_WARNING, "GLSL_LoadGPUShaderText for %s_ep.\n", name);
-#endif //__DEBUG_SHADER_LOAD__
-			return 0;
+			epCode = fallback_ep;
 		}
 	}
 
 	if (geometry && fallback_gs && fallback_gs[0])
 	{
-		size = sizeof(gsCode);
 		if (addHeader)
 		{
-			GLSL_GetShaderHeader(GL_GEOMETRY_SHADER, extra, gsCode, size, forceVersion);
-			postHeader = &gsCode[strlen(gsCode)];
-			size -= strlen(gsCode);
+			GLSL_GetShaderHeader(GL_GEOMETRY_SHADER, extra, gsCode, forceVersion, bindless);
+			gsCode += fallback_gs;
 		}
 		else
 		{
-			postHeader = &gsCode[0];
-		}
-
-		//ri->Printf(PRINT_WARNING, "Begin GLSL load GL_GEOMETRY_SHADER for %s.\n", name);
-
-		if (!GLSL_LoadGPUShaderText(name, fallback_gs, GL_GEOMETRY_SHADER, postHeader, size))
-		{
-#ifdef __DEBUG_SHADER_LOAD__
-			ri->Printf(PRINT_WARNING, "GLSL_LoadGPUShaderText for %s_gs.\n", name);
-#endif //__DEBUG_SHADER_LOAD__
-			return 0;
+			gsCode = fallback_gs;
 		}
 	}
 
 	if (fragmentShader)
 	{
-		size = sizeof(fpCode);
 		if (addHeader)
 		{
-			GLSL_GetShaderHeader(GL_FRAGMENT_SHADER, extra, fpCode, size, forceVersion);
-			postHeader = &fpCode[strlen(fpCode)];
-			size -= strlen(fpCode);
+			GLSL_GetShaderHeader(GL_FRAGMENT_SHADER, extra, fpCode, forceVersion, bindless);
+			fpCode += fallback_fp;
 		}
 		else
 		{
-			postHeader = &fpCode[0];
-		}
-
-		if (!GLSL_LoadGPUShaderText(name, fallback_fp, GL_FRAGMENT_SHADER, postHeader, size))
-		{
-#ifdef __DEBUG_SHADER_LOAD__
-			ri->Printf(PRINT_WARNING, "GLSL_LoadGPUShaderText for %s_fp.\n", name);
-#endif //__DEBUG_SHADER_LOAD__
-			return 0;
+			fpCode = fallback_fp;
 		}
 	}
 
@@ -1790,13 +1695,13 @@ int GLSL_BeginLoadGPUShader(shaderProgram_t * program, const char *name,
 				&& !StringContainsWord(name, "instances")
 				&& !StringContainsWord(name, "depthAdjust"))
 			{// The optimizer doesn't like lightAll and depthPass vert shaders...
-				if (vpCode)
+				if (vpCode.length())
 				{
-					glslopt_shader *sh = glslopt_optimize(ctx, kGlslOptShaderVertex, vpCode, 0);
+					glslopt_shader *sh = glslopt_optimize(ctx, kGlslOptShaderVertex, vpCode.c_str(), 0);
 					if (glslopt_get_status(sh)) {
 						const char *newSource = glslopt_get_output(sh);
-						memset(vpCode, 0, sizeof(char) * MAX_GLSL_LENGTH);
-						strcpy(vpCode, newSource);
+						vpCode.clear();
+						vpCode = newSource;
 						GLSL_PrintShaderOptimizationStats(va("%s (vert)", name), sh);
 					}
 					else {
@@ -1813,17 +1718,17 @@ int GLSL_BeginLoadGPUShader(shaderProgram_t * program, const char *name,
 				&& !StringContainsWord(name, "instances")
 				&& !StringContainsWord(name, "depthAdjust"))
 			{
-				if (fpCode)
+				if (fpCode.length())
 				{
-					glslopt_shader *sh = glslopt_optimize(ctx, kGlslOptShaderFragment, fpCode, 0);
+					glslopt_shader *sh = glslopt_optimize(ctx, kGlslOptShaderFragment, fpCode.c_str(), 0);
 					if (glslopt_get_status(sh)) {
 						const char *newSource = glslopt_get_output(sh);
 #ifdef __GLSL_OPTIMIZER_DEBUG__
 						ri->Printf(PRINT_WARNING, "strlen %i\n", strlen(newSource));
 						ri->Printf(PRINT_WARNING, "%s\n", newSource);
 #endif //__GLSL_OPTIMIZER_DEBUG__
-						memset(fpCode, 0, sizeof(char) * MAX_GLSL_LENGTH);
-						strcpy(fpCode, newSource);
+						fpCode.clear();
+						fpCode = newSource;
 						GLSL_PrintShaderOptimizationStats(va("%s (frag)", name), sh);
 					}
 					else {
@@ -1839,21 +1744,21 @@ int GLSL_BeginLoadGPUShader(shaderProgram_t * program, const char *name,
 		}
 	}
 #endif //__GLSL_OPTIMIZER__
-
-	if (tesselation && cpCode && cpCode[0] && epCode && epCode[0])
+	
+	if (tesselation && cpCode.length())
 	{
-		if (geometry && gsCode && gsCode[0])
-			return GLSL_BeginLoadGPUShader2(program, name, attribs, vpCode, fragmentShader ? fpCode : NULL, cpCode, epCode, gsCode);
+		if (geometry && gsCode.length())
+			return GLSL_BeginLoadGPUShader2(program, name, attribs, vpCode, fragmentShader ? fpCode : "", cpCode, epCode, gsCode, bindless);
 		else
-			return GLSL_BeginLoadGPUShader2(program, name, attribs, vpCode, fragmentShader ? fpCode : NULL, cpCode, epCode, NULL);
+			return GLSL_BeginLoadGPUShader2(program, name, attribs, vpCode, fragmentShader ? fpCode : "", cpCode, epCode, "", bindless);
 	}
-	else if (geometry && gsCode && gsCode[0])
+	else if (geometry && gsCode.length())
 	{
-		return GLSL_BeginLoadGPUShader2(program, name, attribs, vpCode, fragmentShader ? fpCode : NULL, NULL, NULL, gsCode);
+		return GLSL_BeginLoadGPUShader2(program, name, attribs, vpCode, fragmentShader ? fpCode : "", "", "", gsCode.c_str(), bindless);
 	}
 	else
 	{
-		return GLSL_BeginLoadGPUShader2(program, name, attribs, vpCode, fragmentShader ? fpCode : NULL, NULL, NULL, NULL);
+		return GLSL_BeginLoadGPUShader2(program, name, attribs, vpCode, fragmentShader ? fpCode : "", "", "", "", bindless);
 	}
 }
 
@@ -1881,28 +1786,28 @@ void GLSL_InitUniforms(shaderProgram_t *program)
 		switch (uniformsInfo[i].type)
 		{
 		case GLSL_INT:
-			size += sizeof(GLint)* uniformsInfo[i].size;
+			size += sizeof(GLint) * uniformsInfo[i].size;
 			break;
 		case GLSL_FLOAT:
-			size += sizeof(GLfloat)* uniformsInfo[i].size;
+			size += sizeof(GLfloat) * uniformsInfo[i].size;
 			break;
 		case GLSL_FLOAT5:
-			size += sizeof(float)* 5 * uniformsInfo[i].size;
+			size += sizeof(float) * 5 * uniformsInfo[i].size;
 			break;
 		case GLSL_FLOAT7:
 			size += sizeof(float) * 7 * uniformsInfo[i].size;
 			break;
 		case GLSL_VEC2:
-			size += sizeof(float)* 2 * uniformsInfo[i].size;
+			size += sizeof(float) * 2 * uniformsInfo[i].size;
 			break;
 		case GLSL_VEC3:
-			size += sizeof(float)* 3 * uniformsInfo[i].size;
+			size += sizeof(float) * 3 * uniformsInfo[i].size;
 			break;
 		case GLSL_VEC4:
-			size += sizeof(float)* 4 * uniformsInfo[i].size;
+			size += sizeof(float) * 4 * uniformsInfo[i].size;
 			break;
 		case GLSL_MAT16:
-			size += sizeof(float)* 16 * uniformsInfo[i].size;
+			size += sizeof(float) * 16 * uniformsInfo[i].size;
 			break;
 		default:
 			break;
@@ -1948,8 +1853,488 @@ qboolean GLSL_CompareIntBuffers(const int *buffer1, int *buffer2, int numElement
 	return qtrue;
 }
 
+//#define __BINDLESS_OFFSETS__
+
+GLuint CURRENT_BINDING_POINT = 1;
+
+void GLSL_BindlessInitialize(shaderProgram_t *program)
+{
+	if (!program->isBindless)
+	{
+		return;
+	}
+
+	if (program->bindLessBindingPoint <= 0)
+	{// Create a new buffer, if we have not yet...
+		GLuint index = qglGetUniformBlockIndex(program->program, "u_bindlessTexturesBlock");
+
+		program->bindLessBindingPoint = CURRENT_BINDING_POINT;
+		CURRENT_BINDING_POINT++;
+
+		qglUniformBlockBinding(program->program, index, program->bindLessBindingPoint);
+
+		qglGenBuffers(1, &program->bindlessBlockUBO);
+		qglBindBuffer(GL_UNIFORM_BUFFER, program->bindlessBlockUBO);
+		qglBufferData(GL_UNIFORM_BUFFER, sizeof(program->bindlessBlock), NULL, GL_DYNAMIC_DRAW/*GL_STREAM_DRAW*/);
+		qglBindBufferBase(GL_UNIFORM_BUFFER, program->bindLessBindingPoint, program->bindlessBlockUBO);
+		qglBindBuffer(GL_UNIFORM_BUFFER, 0);
+
+		qglBindBuffer(GL_UNIFORM_BUFFER, program->bindlessBlockUBO);
+		qglBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(program->bindlessBlock), &program->bindlessBlock);
+		qglBindBuffer(GL_UNIFORM_BUFFER, 0);
+
+		qglBindBufferRange(GL_UNIFORM_BUFFER, index, program->bindlessBlockUBO, 0, sizeof(program->bindlessBlock));
+	}
+}
+
+void GLSL_BindlessUpdate(shaderProgram_t *program)
+{
+	if (!program->isBindless)
+	{
+		return;
+	}
+
+	GLSL_BindlessInitialize(program);
+
+#ifndef __BINDLESS_OFFSETS__
+	if (!memcmp(&program->bindlessBlock, &program->bindlessBlockPrevious, sizeof(program->bindlessBlock)))
+	{// Has not changed...
+		return;
+	}
+
+	qglBindBuffer(GL_UNIFORM_BUFFER, program->bindlessBlockUBO);
+	qglBufferSubData(GL_UNIFORM_BUFFER, 0 /* TODO: offsets */, sizeof(program->bindlessBlock), &program->bindlessBlock);
+	qglBindBuffer(GL_UNIFORM_BUFFER, 0);
+
+	// Update our previous copy buffer so we can skip updates...
+	memcpy(&program->bindlessBlockPrevious, &program->bindlessBlock, sizeof(program->bindlessBlock));
+#else //!__BINDLESS_OFFSETS__
+	bindlessTexturesBlock_t *block = &program->bindlessBlock;
+	bindlessTexturesBlock_t *blockPrevious = &program->bindlessBlockPrevious;
+
+	qglBindBuffer(GL_UNIFORM_BUFFER, program->bindlessBlockUBO);
+
+	for (int uniformNum = UNIFORM_DIFFUSEMAP; uniformNum <= UNIFORM_MOONMAPS; uniformNum++)
+	{
+		size_t offset = 0;
+
+		switch (uniformNum)
+		{
+		case UNIFORM_DIFFUSEMAP:
+			if (block->u_DiffuseMap == blockPrevious->u_DiffuseMap)
+				continue;
+
+			offset = offsetof(bindlessTexturesBlock_t, u_DiffuseMap);
+			break;
+		case UNIFORM_LIGHTMAP:
+			if (block->u_LightMap == blockPrevious->u_LightMap)
+				continue;
+
+			offset = offsetof(bindlessTexturesBlock_t, u_LightMap);
+			break;
+		case UNIFORM_NORMALMAP:
+			if (block->u_NormalMap == blockPrevious->u_NormalMap)
+				continue;
+
+			offset = offsetof(bindlessTexturesBlock_t, u_NormalMap);
+			break;
+		case UNIFORM_DELUXEMAP:
+			if (block->u_DeluxeMap == blockPrevious->u_DeluxeMap)
+				continue;
+
+			offset = offsetof(bindlessTexturesBlock_t, u_DeluxeMap);
+			break;
+		case UNIFORM_SPECULARMAP:
+			if (block->u_SpecularMap == blockPrevious->u_SpecularMap)
+				continue;
+
+			offset = offsetof(bindlessTexturesBlock_t, u_SpecularMap);
+			break;
+		case UNIFORM_POSITIONMAP:
+			if (block->u_PositionMap == blockPrevious->u_PositionMap)
+				continue;
+
+			offset = offsetof(bindlessTexturesBlock_t, u_PositionMap);
+			break;
+		case UNIFORM_WATERPOSITIONMAP:
+			if (block->u_WaterPositionMap == blockPrevious->u_WaterPositionMap)
+				continue;
+
+			offset = offsetof(bindlessTexturesBlock_t, u_WaterPositionMap);
+			break;
+		case UNIFORM_WATERHEIGHTMAP:
+			if (block->u_WaterHeightMap == blockPrevious->u_WaterHeightMap)
+				continue;
+
+			offset = offsetof(bindlessTexturesBlock_t, u_WaterHeightMap);
+			break;
+		case UNIFORM_HEIGHTMAP:
+			if (block->u_HeightMap == blockPrevious->u_HeightMap)
+				continue;
+
+			offset = offsetof(bindlessTexturesBlock_t, u_HeightMap);
+			break;
+		case UNIFORM_GLOWMAP:
+			if (block->u_GlowMap == blockPrevious->u_GlowMap)
+				continue;
+
+			offset = offsetof(bindlessTexturesBlock_t, u_GlowMap);
+			break;
+		case UNIFORM_ENVMAP:
+			if (block->u_EnvironmentMap == blockPrevious->u_EnvironmentMap)
+				continue;
+
+			offset = offsetof(bindlessTexturesBlock_t, u_EnvironmentMap);
+			break;
+		case UNIFORM_TEXTUREMAP:
+			if (block->u_TextureMap == blockPrevious->u_TextureMap)
+				continue;
+
+			offset = offsetof(bindlessTexturesBlock_t, u_TextureMap);
+			break;
+		case UNIFORM_LEVELSMAP:
+			if (block->u_LevelsMap == blockPrevious->u_LevelsMap)
+				continue;
+
+			offset = offsetof(bindlessTexturesBlock_t, u_LevelsMap);
+			break;
+		case UNIFORM_CUBEMAP:
+			if (block->u_CubeMap == blockPrevious->u_CubeMap)
+				continue;
+
+			offset = offsetof(bindlessTexturesBlock_t, u_CubeMap);
+			break;
+		case UNIFORM_SKYCUBEMAP:
+			if (block->u_SkyCubeMap == blockPrevious->u_SkyCubeMap)
+				continue;
+
+			offset = offsetof(bindlessTexturesBlock_t, u_SkyCubeMap);
+			break;
+		case UNIFORM_SKYCUBEMAPNIGHT:
+			if (block->u_SkyCubeMapNight == blockPrevious->u_SkyCubeMapNight)
+				continue;
+
+			offset = offsetof(bindlessTexturesBlock_t, u_SkyCubeMapNight);
+			break;
+		case UNIFORM_EMISSIVECUBE:
+			if (block->u_EmissiveCubeMap == blockPrevious->u_EmissiveCubeMap)
+				continue;
+
+			offset = offsetof(bindlessTexturesBlock_t, u_EmissiveCubeMap);
+			break;
+		case UNIFORM_OVERLAYMAP:
+			if (block->u_OverlayMap == blockPrevious->u_OverlayMap)
+				continue;
+
+			offset = offsetof(bindlessTexturesBlock_t, u_OverlayMap);
+			break;
+		case UNIFORM_STEEPMAP:
+			if (block->u_SteepMap == blockPrevious->u_SteepMap)
+				continue;
+
+			offset = offsetof(bindlessTexturesBlock_t, u_SteepMap);
+			break;
+		case UNIFORM_STEEPMAP1:
+			if (block->u_SteepMap1 == blockPrevious->u_SteepMap1)
+				continue;
+
+			offset = offsetof(bindlessTexturesBlock_t, u_SteepMap1);
+			break;
+		case UNIFORM_STEEPMAP2:
+			if (block->u_SteepMap2 == blockPrevious->u_SteepMap2)
+				continue;
+
+			offset = offsetof(bindlessTexturesBlock_t, u_SteepMap2);
+			break;
+		case UNIFORM_STEEPMAP3:
+			if (block->u_SteepMap3 == blockPrevious->u_SteepMap3)
+				continue;
+
+			offset = offsetof(bindlessTexturesBlock_t, u_SteepMap3);
+			break;
+		case UNIFORM_WATER_EDGE_MAP:
+			if (block->u_WaterEdgeMap == blockPrevious->u_WaterEdgeMap)
+				continue;
+
+			offset = offsetof(bindlessTexturesBlock_t, u_WaterEdgeMap);
+			break;
+		case UNIFORM_SPLATCONTROLMAP:
+			if (block->u_SplatControlMap == blockPrevious->u_SplatControlMap)
+				continue;
+
+			offset = offsetof(bindlessTexturesBlock_t, u_SplatControlMap);
+			break;
+		case UNIFORM_SPLATMAP1:
+			if (block->u_SplatMap1 == blockPrevious->u_SplatMap1)
+				continue;
+
+			offset = offsetof(bindlessTexturesBlock_t, u_SplatMap1);
+			break;
+		case UNIFORM_SPLATMAP2:
+			if (block->u_SplatMap2 == blockPrevious->u_SplatMap2)
+				continue;
+
+			offset = offsetof(bindlessTexturesBlock_t, u_SplatMap2);
+			break;
+		case UNIFORM_SPLATMAP3:
+			if (block->u_SplatMap3 == blockPrevious->u_SplatMap3)
+				continue;
+
+			offset = offsetof(bindlessTexturesBlock_t, u_SplatMap3);
+			break;
+		case UNIFORM_ROADSCONTROLMAP:
+			if (block->u_RoadsControlMap == blockPrevious->u_RoadsControlMap)
+				continue;
+
+			offset = offsetof(bindlessTexturesBlock_t, u_RoadsControlMap);
+			break;
+		case UNIFORM_ROADMAP:
+			if (block->u_RoadMap == blockPrevious->u_RoadMap)
+				continue;
+
+			offset = offsetof(bindlessTexturesBlock_t, u_RoadMap);
+			break;
+		case UNIFORM_DETAILMAP:
+			if (block->u_DetailMap == blockPrevious->u_DetailMap)
+				continue;
+
+			offset = offsetof(bindlessTexturesBlock_t, u_DetailMap);
+			break;
+		case UNIFORM_SCREENIMAGEMAP:
+			if (block->u_ScreenImageMap == blockPrevious->u_ScreenImageMap)
+				continue;
+
+			offset = offsetof(bindlessTexturesBlock_t, u_ScreenImageMap);
+			break;
+		case UNIFORM_SCREENDEPTHMAP:
+			if (block->u_ScreenDepthMap == blockPrevious->u_ScreenDepthMap)
+				continue;
+
+			offset = offsetof(bindlessTexturesBlock_t, u_ScreenDepthMap);
+			break;
+		case UNIFORM_SHADOWMAP:
+			if (block->u_ShadowMap == blockPrevious->u_ShadowMap)
+				continue;
+
+			offset = offsetof(bindlessTexturesBlock_t, u_ShadowMap);
+			break;
+		case UNIFORM_SHADOWMAP2:
+			if (block->u_ShadowMap2 == blockPrevious->u_ShadowMap2)
+				continue;
+
+			offset = offsetof(bindlessTexturesBlock_t, u_ShadowMap2);
+			break;
+		case UNIFORM_SHADOWMAP3:
+			if (block->u_ShadowMap3 == blockPrevious->u_ShadowMap3)
+				continue;
+
+			offset = offsetof(bindlessTexturesBlock_t, u_ShadowMap3);
+			break;
+		case UNIFORM_SHADOWMAP4:
+			if (block->u_ShadowMap4 == blockPrevious->u_ShadowMap4)
+				continue;
+
+			offset = offsetof(bindlessTexturesBlock_t, u_ShadowMap4);
+			break;
+		case UNIFORM_SHADOWMAP5:
+			if (block->u_ShadowMap5 == blockPrevious->u_ShadowMap5)
+				continue;
+
+			offset = offsetof(bindlessTexturesBlock_t, u_ShadowMap5);
+			break;
+		case UNIFORM_MOONMAPS:
+			{
+				if (block->u_MoonMaps[0] != blockPrevious->u_MoonMaps[0]
+					&& block->u_MoonMaps[1] == blockPrevious->u_MoonMaps[1]
+					&& block->u_MoonMaps[2] == blockPrevious->u_MoonMaps[2]
+					&& block->u_MoonMaps[3] == blockPrevious->u_MoonMaps[3])
+					continue;
+
+				offset = offsetof(bindlessTexturesBlock_t, u_MoonMaps);
+
+				qglBufferSubData(GL_UNIFORM_BUFFER, offset, sizeof(GLuint64) * 4, &program->bindlessBlock);
+				memcpy(&program->bindlessBlockPrevious + offset, &program->bindlessBlock + offset, sizeof(GLuint64) * 4);
+
+				continue;
+			}
+			break;
+		}
+
+		qglBufferSubData(GL_UNIFORM_BUFFER, offset, sizeof(GLuint64), &program->bindlessBlock);
+		memcpy(&program->bindlessBlockPrevious + offset, &program->bindlessBlock + offset, sizeof(GLuint64));
+	}
+
+	qglBindBuffer(GL_UNIFORM_BUFFER, 0);
+#endif //__BINDLESS_OFFSETS__
+}
+
+void GLSL_SetBindlessTexture(shaderProgram_t *program, int uniformNum, image_t **images, int arrayID)
+{
+	if (program->isBindless && uniformNum >= UNIFORM_DIFFUSEMAP && uniformNum <= UNIFORM_MOONMAPS)
+	{// When using bindless textures, we simply set the appropriate array value...
+		if (!images || !images[0])
+		{
+			ri->Printf(PRINT_WARNING, "GLSL_SetBindlessTexture: Fix ya code doofus, you set a NULL texture for uniform %i.\n", uniformNum);
+			return;
+		}
+
+		/*shaderProgram_t *origProgram = NULL;
+
+		if (glState.currentProgram != program)
+		{
+			origProgram = glState.currentProgram;
+
+			GLSL_BindProgram(program);
+		}*/
+
+		GLSL_BindlessInitialize(program);
+
+		bindlessTexturesBlock_t *block = &program->bindlessBlock;
+
+		GLuint64 bindlessHandle = images[0]->bindlessHandle;
+		
+		/*ri->Printf(PRINT_WARNING, "SetBindlessTexture: Program %s uniform %i is binding %s (handle %u).\n"
+			, (program && program->name && program->name[0] != 0) ? program->name : "unknown program"
+			, uniformNum
+			, (images[0] && images[0]->imgName && images[0]->imgName[0] != 0) ? images[0]->imgName : "unknown image"
+			, bindlessHandle);*/
+
+		switch (uniformNum)
+		{
+		case UNIFORM_DIFFUSEMAP:
+			block->u_DiffuseMap = bindlessHandle;
+			break;
+		case UNIFORM_LIGHTMAP:
+			block->u_LightMap = bindlessHandle;
+			break;
+		case UNIFORM_NORMALMAP:
+			block->u_NormalMap = bindlessHandle;
+			break;
+		case UNIFORM_DELUXEMAP:
+			block->u_DeluxeMap = bindlessHandle;
+			break;
+		case UNIFORM_SPECULARMAP:
+			block->u_SpecularMap = bindlessHandle;
+			break;
+		case UNIFORM_POSITIONMAP:
+			block->u_PositionMap = bindlessHandle;
+			break;
+		case UNIFORM_WATERPOSITIONMAP:
+			block->u_WaterPositionMap = bindlessHandle;
+			break;
+		case UNIFORM_WATERHEIGHTMAP:
+			block->u_WaterHeightMap = bindlessHandle;
+			break;
+		case UNIFORM_HEIGHTMAP:
+			block->u_HeightMap = bindlessHandle;
+			break;
+		case UNIFORM_GLOWMAP:
+			block->u_GlowMap = bindlessHandle;
+			break;
+		case UNIFORM_ENVMAP:
+			block->u_EnvironmentMap = bindlessHandle;
+			break;
+		case UNIFORM_TEXTUREMAP:
+			block->u_TextureMap = bindlessHandle;
+			break;
+		case UNIFORM_LEVELSMAP:
+			block->u_LevelsMap = bindlessHandle;
+			break;
+		case UNIFORM_CUBEMAP:
+			block->u_CubeMap = bindlessHandle;
+			break;
+		case UNIFORM_SKYCUBEMAP:
+			block->u_SkyCubeMap = bindlessHandle;
+			break;
+		case UNIFORM_SKYCUBEMAPNIGHT:
+			block->u_SkyCubeMapNight = bindlessHandle;
+			break;
+		case UNIFORM_EMISSIVECUBE:
+			block->u_EmissiveCubeMap = bindlessHandle;
+			break;
+		case UNIFORM_OVERLAYMAP:
+			block->u_OverlayMap = bindlessHandle;
+			break;
+		case UNIFORM_STEEPMAP:
+			block->u_SteepMap = bindlessHandle;
+			break;
+		case UNIFORM_STEEPMAP1:
+			block->u_SteepMap1 = bindlessHandle;
+			break;
+		case UNIFORM_STEEPMAP2:
+			block->u_SteepMap2 = bindlessHandle;
+			break;
+		case UNIFORM_STEEPMAP3:
+			block->u_SteepMap3 = bindlessHandle;
+			break;
+		case UNIFORM_WATER_EDGE_MAP:
+			block->u_WaterEdgeMap = bindlessHandle;
+			break;
+		case UNIFORM_SPLATCONTROLMAP:
+			block->u_SplatControlMap = bindlessHandle;
+			break;
+		case UNIFORM_SPLATMAP1:
+			block->u_SplatMap1 = bindlessHandle;
+			break;
+		case UNIFORM_SPLATMAP2:
+			block->u_SplatMap2 = bindlessHandle;
+			break;
+		case UNIFORM_SPLATMAP3:
+			block->u_SplatMap3 = bindlessHandle;
+			break;
+		case UNIFORM_ROADSCONTROLMAP:
+			block->u_RoadsControlMap = bindlessHandle;
+			break;
+		case UNIFORM_ROADMAP:
+			block->u_RoadMap = bindlessHandle;
+			break;
+		case UNIFORM_DETAILMAP:
+			block->u_DetailMap = bindlessHandle;
+			break;
+		case UNIFORM_SCREENIMAGEMAP:
+			block->u_ScreenImageMap = bindlessHandle;
+			break;
+		case UNIFORM_SCREENDEPTHMAP:
+			block->u_ScreenDepthMap = bindlessHandle;
+			break;
+		case UNIFORM_SHADOWMAP:
+			block->u_ShadowMap = bindlessHandle;
+			break;
+		case UNIFORM_SHADOWMAP2:
+			block->u_ShadowMap2 = bindlessHandle;
+			break;
+		case UNIFORM_SHADOWMAP3:
+			block->u_ShadowMap3 = bindlessHandle;
+			break;
+		case UNIFORM_SHADOWMAP4:
+			block->u_ShadowMap4 = bindlessHandle;
+			break;
+		case UNIFORM_SHADOWMAP5:
+			block->u_ShadowMap5 = bindlessHandle;
+			break;
+		case UNIFORM_MOONMAPS:
+			block->u_MoonMaps[arrayID] = bindlessHandle;
+			break;
+		}
+
+#ifdef __BINDLESS_OFFSETS__
+		GLSL_BindlessUpdate(program);
+#endif //__BINDLESS_OFFSETS__
+
+		/*if (origProgram)
+		{
+			GLSL_BindProgram(origProgram);
+		}*/
+	}
+}
+
 void GLSL_SetUniformInt(shaderProgram_t *program, int uniformNum, GLint value)
 {
+	if (program->isBindless && uniformNum >= UNIFORM_DIFFUSEMAP && uniformNum <= UNIFORM_MOONMAPS)
+	{// When using bindless textures, skip this...
+		return;
+	}
+
 	GLint *uniforms = program->uniforms;
 
 	if (uniforms[uniformNum] == -1)
@@ -2359,9 +2744,23 @@ void GLSL_DeleteGPUShader(shaderProgram_t *program)
 {
 	if (program->program)
 	{
+		if (program->bindlessBlockUBO)
+		{
+			qglDeleteBuffers(1, &program->bindlessBlockUBO);
+			program->bindlessBlockUBO = 0;
+		}
+
+#ifdef __LIGHTS_UBO__
+		if (program->LightsBlockUBO)
+		{
+			qglDeleteBuffers(1, &program->LightsBlockUBO);
+			program->LightsBlockUBO = 0;
+		}
+#endif //__LIGHTS_UBO__
+
 		qglDeleteProgram(program->program);
 
-		Z_Free(program->name);
+		program->name.clear();
 		Z_Free(program->uniformBuffer);
 		Z_Free(program->uniformBufferOffsets);
 		Z_Free(program->uniforms);
@@ -2374,7 +2773,7 @@ int GLSL_BeginLoadGPUShaders(void)
 {
 	int startTime;
 	int i;
-	char extradefines[1024];
+	char extradefines[1024] = { { 0 } };
 	int attribs;
 
 	ri->Printf(PRINT_ALL, "^5------- ^7GLSL_InitGPUShaders^5 -------\n");
@@ -2393,7 +2792,7 @@ int GLSL_BeginLoadGPUShaders(void)
 
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0;
 
-	if (!GLSL_BeginLoadGPUShader(&tr.textureColorShader, "texturecolor", attribs, qtrue, qfalse, qfalse, NULL, qfalse, NULL, fallbackShader_texturecolor_vp, fallbackShader_texturecolor_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.textureColorShader, "texturecolor", attribs, qtrue, qfalse, qfalse, qfalse/*qtrue - only 1*/, NULL, qtrue, NULL, fallbackShader_texturecolor_vp, fallbackShader_texturecolor_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load texturecolor shader!");
 	}
@@ -2401,7 +2800,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0;// | ATTR_COLOR | ATTR_NORMAL;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.weatherShader, "weather", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_weather_vp, fallbackShader_weather_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.weatherShader, "weather", attribs, qtrue, qfalse, qfalse, qfalse/*qtrue - only 1*/, extradefines, qtrue, NULL, fallbackShader_weather_vp, fallbackShader_weather_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load weather shader!");
 	}
@@ -2410,7 +2809,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	attribs = ATTR_POSITION | ATTR_NORMAL | ATTR_TEXCOORD0 /*| ATTR_INSTANCES_MVP | ATTR_INSTANCES_POSITION*/;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.instanceShader, "instance", attribs, qtrue, qfalse, qfalse, NULL, qtrue, "330", fallbackShader_instance_vp, fallbackShader_instance_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.instanceShader, "instance", attribs, qtrue, qfalse, qfalse, qfalse, NULL, qtrue, NULL, fallbackShader_instance_vp, fallbackShader_instance_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load instance shader!");
 	}
@@ -2420,7 +2819,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	attribs = ATTR_INSTANCES_POSITION | ATTR_NORMAL | ATTR_TEXCOORD0 /*| ATTR_INSTANCES_MVP | ATTR_INSTANCES_POSITION*/;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.instanceVAOShader, "instanceVao", attribs, qtrue, qfalse, qfalse, NULL, qtrue, "330", fallbackShader_instanceVao_vp, fallbackShader_instanceVao_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.instanceVAOShader, "instanceVao", attribs, qtrue, qfalse, qfalse, qfalse, NULL, qtrue, NULL, fallbackShader_instanceVao_vp, fallbackShader_instanceVao_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load instanceVao shader!");
 	}
@@ -2429,7 +2828,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	attribs = ATTR_POSITION;// | ATTR_TEXCOORD0;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.occlusionShader, "occlusion", attribs, qtrue, qfalse, qfalse, NULL, qfalse, NULL, fallbackShader_occlusion_vp, fallbackShader_occlusion_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.occlusionShader, "occlusion", attribs, qtrue, qfalse, qfalse, qfalse/*qtrue - only 2*/, NULL, qtrue, NULL, fallbackShader_occlusion_vp, fallbackShader_occlusion_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load occlusion shader!");
 	}
@@ -2437,7 +2836,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.depthAdjustShader, "depthAdjust", attribs, qtrue, qfalse, qfalse, NULL, qtrue, NULL, fallbackShader_depthAdjust_vp, fallbackShader_depthAdjust_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.depthAdjustShader, "depthAdjust", attribs, qtrue, qfalse, qfalse, qfalse/*qtrue - only 1*/, NULL, qtrue, NULL, fallbackShader_depthAdjust_vp, fallbackShader_depthAdjust_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load depthAdjust shader!");
 	}
@@ -2460,7 +2859,7 @@ int GLSL_BeginLoadGPUShaders(void)
 
 		strcat(extradefines, va("#define MAX_GLM_BONEREFS %i\n", MAX_GLM_BONEREFS));
 
-		if (!GLSL_BeginLoadGPUShader(&tr.lightAllShader[0], "lightall0", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_lightall_vp, fallbackShader_lightall_fp, NULL, NULL, NULL))
+		if (!GLSL_BeginLoadGPUShader(&tr.lightAllShader[0], "lightall0", attribs, qtrue, qfalse, qfalse, qtrue, extradefines, qtrue, NULL, fallbackShader_lightall_vp, fallbackShader_lightall_fp, NULL, NULL, NULL))
 		{
 			ri->Error(ERR_FATAL, "Could not load lightall0 shader!");
 		}
@@ -2486,7 +2885,7 @@ int GLSL_BeginLoadGPUShaders(void)
 
 		strcat(extradefines, va("#define MAX_GLM_BONEREFS %i\n", MAX_GLM_BONEREFS));
 
-		if (!GLSL_BeginLoadGPUShader(&tr.lightAllShader[1], "lightall1", attribs, qtrue, qtrue, qfalse, extradefines, qtrue, NULL, fallbackShader_lightall_vp, fallbackShader_lightall_fp, fallbackShader_tessellation_cs, fallbackShader_tessellation_es, NULL/*fallbackShader_tessellation_gs*/))
+		if (!GLSL_BeginLoadGPUShader(&tr.lightAllShader[1], "lightall1", attribs, qtrue, qtrue, qfalse, qtrue, extradefines, qtrue, NULL, fallbackShader_lightall_vp, fallbackShader_lightall_fp, fallbackShader_tessellation_cs, fallbackShader_tessellation_es, NULL/*fallbackShader_tessellation_gs*/))
 		{
 			ri->Error(ERR_FATAL, "Could not load lightall1 (tess) shader!");
 		}
@@ -2512,7 +2911,7 @@ int GLSL_BeginLoadGPUShaders(void)
 
 		strcat(extradefines, "#define __LAVA__\n");
 
-		if (!GLSL_BeginLoadGPUShader(&tr.lightAllShader[2], "lightall2", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_lightall_vp, fallbackShader_lightall_fp, NULL, NULL, NULL))
+		if (!GLSL_BeginLoadGPUShader(&tr.lightAllShader[2], "lightall2", attribs, qtrue, qfalse, qfalse, qtrue, extradefines, qtrue, NULL, fallbackShader_lightall_vp, fallbackShader_lightall_fp, NULL, NULL, NULL))
 		{
 			ri->Error(ERR_FATAL, "Could not load lightall (lava) shader!");
 		}
@@ -2540,7 +2939,7 @@ int GLSL_BeginLoadGPUShaders(void)
 
 		strcat(extradefines, va("#define MAX_GLM_BONEREFS %i\n", MAX_GLM_BONEREFS));
 
-		if (!GLSL_BeginLoadGPUShader(&tr.lightAllSplatShader[0], "lightallSplat0", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_lightallSplat_vp, fallbackShader_lightallSplat_fp, NULL, NULL, NULL))
+		if (!GLSL_BeginLoadGPUShader(&tr.lightAllSplatShader[0], "lightallSplat0", attribs, qtrue, qfalse, qfalse, qtrue, extradefines, qtrue, NULL, fallbackShader_lightallSplat_vp, fallbackShader_lightallSplat_fp, NULL, NULL, NULL))
 		{
 			ri->Error(ERR_FATAL, "Could not load lightallSplat0 shader!");
 		}
@@ -2566,7 +2965,7 @@ int GLSL_BeginLoadGPUShaders(void)
 
 		strcat(extradefines, va("#define MAX_GLM_BONEREFS %i\n", MAX_GLM_BONEREFS));
 
-		if (!GLSL_BeginLoadGPUShader(&tr.lightAllSplatShader[1], "lightallSplat1", attribs, qtrue, qtrue, qfalse, extradefines, qtrue, NULL, fallbackShader_lightallSplat_vp, fallbackShader_lightallSplat_fp, fallbackShader_tessellation_cs, fallbackShader_tessellation_es, NULL))
+		if (!GLSL_BeginLoadGPUShader(&tr.lightAllSplatShader[1], "lightallSplat1", attribs, qtrue, qtrue, qfalse, qtrue, extradefines, qtrue, NULL, fallbackShader_lightallSplat_vp, fallbackShader_lightallSplat_fp, fallbackShader_tessellation_cs, fallbackShader_tessellation_es, NULL))
 		{
 			ri->Error(ERR_FATAL, "Could not load lightallSplat1 (tess) shader!");
 		}
@@ -2592,7 +2991,7 @@ int GLSL_BeginLoadGPUShaders(void)
 
 		strcat(extradefines, va("#define MAX_GLM_BONEREFS %i\n", MAX_GLM_BONEREFS));
 
-		if (!GLSL_BeginLoadGPUShader(&tr.lightAllSplatShader[2], "lightallSplat2", attribs, qtrue, qtrue, qfalse, extradefines, qtrue, NULL, fallbackShader_lightallSplat_vp, fallbackShader_lightallSplat_fp, fallbackShader_tessellationTerrain_cs, fallbackShader_tessellationTerrain_es, NULL))
+		if (!GLSL_BeginLoadGPUShader(&tr.lightAllSplatShader[2], "lightallSplat2", attribs, qtrue, qtrue, qfalse, qtrue, extradefines, qtrue, NULL, fallbackShader_lightallSplat_vp, fallbackShader_lightallSplat_fp, fallbackShader_tessellationTerrain_cs, fallbackShader_tessellationTerrain_es, NULL))
 		{
 			ri->Error(ERR_FATAL, "Could not load lightallSplat2 (tessTerrain) shader!");
 		}
@@ -2618,7 +3017,7 @@ int GLSL_BeginLoadGPUShaders(void)
 
 		strcat(extradefines, va("#define MAX_GLM_BONEREFS %i\n", MAX_GLM_BONEREFS));
 
-		if (!GLSL_BeginLoadGPUShader(&tr.lightAllSplatShader[3], "lightallSplat3", attribs, qtrue, qtrue, qfalse, extradefines, qtrue, NULL, fallbackShader_lightallSplat_vp, fallbackShader_lightallSplat_fp, fallbackShader_tessellation3D_cs, fallbackShader_tessellation3D_es, NULL))
+		if (!GLSL_BeginLoadGPUShader(&tr.lightAllSplatShader[3], "lightallSplat3", attribs, qtrue, qtrue, qfalse, qtrue, extradefines, qtrue, NULL, fallbackShader_lightallSplat_vp, fallbackShader_lightallSplat_fp, fallbackShader_tessellation3D_cs, fallbackShader_tessellation3D_es, NULL))
 		{
 			ri->Error(ERR_FATAL, "Could not load lightallSplat3 (tess3D) shader!");
 		}
@@ -2631,7 +3030,7 @@ int GLSL_BeginLoadGPUShaders(void)
 
 		strcat(extradefines, va("#define MAX_GLM_BONEREFS %i\n", MAX_GLM_BONEREFS));
 
-		if (!GLSL_BeginLoadGPUShader(&tr.depthPassShader[0], "depthPass0", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_depthPass_vp, fallbackShader_depthPass_fp, NULL, NULL, NULL))
+		if (!GLSL_BeginLoadGPUShader(&tr.depthPassShader[0], "depthPass0", attribs, qtrue, qfalse, qfalse, qtrue, extradefines, qtrue, NULL, fallbackShader_depthPass_vp, fallbackShader_depthPass_fp, NULL, NULL, NULL))
 		{
 			ri->Error(ERR_FATAL, "Could not load depthPass0 shader!");
 		}
@@ -2645,7 +3044,7 @@ int GLSL_BeginLoadGPUShaders(void)
 		strcat(extradefines, "#define USE_TESSELLATION\n");
 		strcat(extradefines, va("#define MAX_GLM_BONEREFS %i\n", MAX_GLM_BONEREFS));
 
-		if (!GLSL_BeginLoadGPUShader(&tr.depthPassShader[1], "depthPass1", attribs, qtrue, qtrue, qfalse, extradefines, qtrue, NULL, fallbackShader_depthPass_vp, fallbackShader_depthPass_fp, fallbackShader_tessellation_cs, fallbackShader_tessellation_es, NULL))
+		if (!GLSL_BeginLoadGPUShader(&tr.depthPassShader[1], "depthPass1", attribs, qtrue, qtrue, qfalse, qtrue, extradefines, qtrue, NULL, fallbackShader_depthPass_vp, fallbackShader_depthPass_fp, fallbackShader_tessellation_cs, fallbackShader_tessellation_es, NULL))
 		{
 			ri->Error(ERR_FATAL, "Could not load depthPass1 shader!");
 		}
@@ -2659,7 +3058,7 @@ int GLSL_BeginLoadGPUShaders(void)
 		strcat(extradefines, "#define USE_TESSELLATION\n");
 		strcat(extradefines, va("#define MAX_GLM_BONEREFS %i\n", MAX_GLM_BONEREFS));
 
-		if (!GLSL_BeginLoadGPUShader(&tr.depthPassShader[2], "depthPass2", attribs, qtrue, qtrue, qfalse, extradefines, qtrue, NULL, fallbackShader_depthPass_vp, fallbackShader_depthPass_fp, fallbackShader_tessellationTerrain_cs, fallbackShader_tessellationTerrain_es, NULL))
+		if (!GLSL_BeginLoadGPUShader(&tr.depthPassShader[2], "depthPass2", attribs, qtrue, qtrue, qfalse, qtrue, extradefines, qtrue, NULL, fallbackShader_depthPass_vp, fallbackShader_depthPass_fp, fallbackShader_tessellationTerrain_cs, fallbackShader_tessellationTerrain_es, NULL))
 		{
 			ri->Error(ERR_FATAL, "Could not load depthPass2 shader!");
 		}
@@ -2673,7 +3072,7 @@ int GLSL_BeginLoadGPUShaders(void)
 		strcat(extradefines, "#define USE_TESSELLATION_3D\n");
 		strcat(extradefines, va("#define MAX_GLM_BONEREFS %i\n", MAX_GLM_BONEREFS));
 
-		if (!GLSL_BeginLoadGPUShader(&tr.depthPassShader[3], "depthPass3", attribs, qtrue, qtrue, qfalse, extradefines, qtrue, NULL, fallbackShader_depthPass_vp, fallbackShader_depthPass_fp, fallbackShader_tessellation3D_cs, fallbackShader_tessellation3D_es, NULL))
+		if (!GLSL_BeginLoadGPUShader(&tr.depthPassShader[3], "depthPass3", attribs, qtrue, qtrue, qfalse, qtrue, extradefines, qtrue, NULL, fallbackShader_depthPass_vp, fallbackShader_depthPass_fp, fallbackShader_tessellation3D_cs, fallbackShader_tessellation3D_es, NULL))
 		{
 			ri->Error(ERR_FATAL, "Could not load depthPass3 shader!");
 		}
@@ -2682,7 +3081,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	attribs = ATTR_POSITION | ATTR_POSITION2 | ATTR_NORMAL | ATTR_NORMAL2 | ATTR_TEXCOORD0;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.shadowmapShader[0], "shadowfill0", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_shadowfill_vp, fallbackShader_shadowfill_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.shadowFillShader[0], "shadowfill0", attribs, qtrue, qfalse, qfalse, qfalse/*qtrue - only 1*/, extradefines, qtrue, NULL, fallbackShader_shadowfill_vp, fallbackShader_shadowfill_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load shadowfill0 shader!");
 	}
@@ -2691,7 +3090,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	extradefines[0] = '\0';
 	strcat(extradefines, "#define USE_TESSELLATION\n");
 
-	if (!GLSL_BeginLoadGPUShader(&tr.shadowmapShader[1], "shadowfill1", attribs, qtrue, qtrue, qfalse, extradefines, qtrue, NULL, fallbackShader_shadowfill_vp, fallbackShader_shadowfill_fp, fallbackShader_tessellation_cs, fallbackShader_tessellation_es, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.shadowFillShader[1], "shadowfill1", attribs, qtrue, qtrue, qfalse, qfalse/*qtrue - only 1*/, extradefines, qtrue, NULL, fallbackShader_shadowfill_vp, fallbackShader_shadowfill_fp, fallbackShader_tessellation_cs, fallbackShader_tessellation_es, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load shadowfill1 shader!");
 	}
@@ -2700,7 +3099,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	extradefines[0] = '\0';
 	strcat(extradefines, "#define USE_TESSELLATION\n");
 
-	if (!GLSL_BeginLoadGPUShader(&tr.shadowmapShader[2], "shadowfill2", attribs, qtrue, qtrue, qfalse, extradefines, qtrue, NULL, fallbackShader_shadowfill_vp, fallbackShader_shadowfill_fp, fallbackShader_tessellationTerrain_cs, fallbackShader_tessellationTerrain_es, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.shadowFillShader[2], "shadowfill2", attribs, qtrue, qtrue, qfalse, qfalse/*qtrue - only 1*/, extradefines, qtrue, NULL, fallbackShader_shadowfill_vp, fallbackShader_shadowfill_fp, fallbackShader_tessellationTerrain_cs, fallbackShader_tessellationTerrain_es, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load shadowfill2 shader!");
 	}
@@ -2709,10 +3108,30 @@ int GLSL_BeginLoadGPUShaders(void)
 	extradefines[0] = '\0';
 	strcat(extradefines, "#define USE_TESSELLATION_3D\n");
 
-	if (!GLSL_BeginLoadGPUShader(&tr.shadowmapShader[3], "shadowfill3", attribs, qtrue, qtrue, qfalse, extradefines, qtrue, NULL, fallbackShader_shadowfill_vp, fallbackShader_shadowfill_fp, fallbackShader_tessellation3D_cs, fallbackShader_tessellation3D_es, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.shadowFillShader[3], "shadowfill3", attribs, qtrue, qtrue, qfalse, qfalse/*qtrue - only 1*/, extradefines, qtrue, NULL, fallbackShader_shadowfill_vp, fallbackShader_shadowfill_fp, fallbackShader_tessellation3D_cs, fallbackShader_tessellation3D_es, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load shadowfill3 shader!");
 	}
+
+
+	attribs = ATTR_POSITION | ATTR_TEXCOORD0;
+	extradefines[0] = '\0';
+
+	if (!GLSL_BeginLoadGPUShader(&tr.shadowmaskShader, "shadowmask", attribs, qtrue, qfalse, qfalse, qtrue, extradefines, qtrue, NULL, fallbackShader_shadowmask_vp, fallbackShader_shadowmask_fp, NULL, NULL, NULL))
+	{
+		ri->Error(ERR_FATAL, "Could not load shadowmask shader!");
+	}
+
+
+	/*
+	attribs = ATTR_POSITION | ATTR_TEXCOORD0;
+	extradefines[0] = '\0';
+
+	if (!GLSL_BeginLoadGPUShader(&tr.shadowBlurShader, "shadowBlur", attribs, qtrue, qfalse, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_shadowBlur_vp, fallbackShader_shadowBlur_fp, NULL, NULL, NULL))
+	{
+		ri->Error(ERR_FATAL, "Could not load shadowBlur shader!");
+	}
+	*/
 
 
 	{
@@ -2721,44 +3140,46 @@ int GLSL_BeginLoadGPUShaders(void)
 
 		extradefines[0] = '\0';
 
-		if (!GLSL_BeginLoadGPUShader(&tr.skyShader, "sky", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_sky_vp, fallbackShader_sky_fp, NULL, NULL, NULL))
+		if (!GLSL_BeginLoadGPUShader(&tr.skyShader, "sky", attribs, qtrue, qfalse, qfalse, qtrue, extradefines, qtrue, NULL, fallbackShader_sky_vp, fallbackShader_sky_fp, NULL, NULL, NULL))
 		{
 			ri->Error(ERR_FATAL, "Could not load sky shader!");
 		}
 	}
 
-
+	/*
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0 | ATTR_COLOR | ATTR_NORMAL | ATTR_TEXCOORD1 | ATTR_POSITION2 | ATTR_NORMAL2;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.sunPassShader, "sun", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_sun_vp, fallbackShader_sun_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.sunPassShader, "sun", attribs, qtrue, qfalse, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_sun_vp, fallbackShader_sun_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load sun shader!");
 	}
+	*/
 
-
+	/*
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0 | ATTR_COLOR | ATTR_NORMAL | ATTR_TEXCOORD1 | ATTR_POSITION2 | ATTR_NORMAL2;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.moonPassShader, "moon", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_planet_vp, fallbackShader_planet_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.moonPassShader, "moon", attribs, qtrue, qfalse, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_planet_vp, fallbackShader_planet_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load moon shader!");
 	}
+	*/
 
-
+	/*
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0 | ATTR_COLOR | ATTR_NORMAL | ATTR_TEXCOORD1 | ATTR_POSITION2 | ATTR_NORMAL2;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.planetPassShader, "planet", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_planet_vp, fallbackShader_planet_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.planetPassShader, "planet", attribs, qtrue, qfalse, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_planet_vp, fallbackShader_planet_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load planet shader!");
 	}
-
+	*/
 
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0 | ATTR_COLOR | ATTR_NORMAL | ATTR_TEXCOORD1 | ATTR_POSITION2 | ATTR_NORMAL2;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.fireShader, "fire", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_fire_vp, fallbackShader_fire_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.fireShader, "fire", attribs, qtrue, qfalse, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_fire_vp, fallbackShader_fire_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load fire shader!");
 	}
@@ -2766,7 +3187,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0 | ATTR_COLOR | ATTR_NORMAL | ATTR_TEXCOORD1 | ATTR_POSITION2 | ATTR_NORMAL2;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.menuBackgroundShader, "menuBackground", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_menuBackground_vp, fallbackShader_menuBackground_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.menuBackgroundShader, "menuBackground", attribs, qtrue, qfalse, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_menuBackground_vp, fallbackShader_menuBackground_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load menuBackground shader!");
 	}
@@ -2775,7 +3196,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0 | ATTR_COLOR | ATTR_NORMAL | ATTR_TEXCOORD1 | ATTR_POSITION2 | ATTR_NORMAL2;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.smokeShader, "smoke", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_smoke_vp, fallbackShader_smoke_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.smokeShader, "smoke", attribs, qtrue, qfalse, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_smoke_vp, fallbackShader_smoke_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load smoke shader!");
 	}
@@ -2783,7 +3204,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0 | ATTR_COLOR | ATTR_NORMAL | ATTR_TEXCOORD1 | ATTR_POSITION2 | ATTR_NORMAL2;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.magicParticlesShader, "magicParticles", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_magicParticles_vp, fallbackShader_magicParticles_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.magicParticlesShader, "magicParticles", attribs, qtrue, qfalse, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_magicParticles_vp, fallbackShader_magicParticles_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load magicParticles shader!");
 	}
@@ -2791,7 +3212,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0 | ATTR_COLOR | ATTR_NORMAL | ATTR_TEXCOORD1 | ATTR_POSITION2 | ATTR_NORMAL2;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.magicParticlesTreeShader, "magicParticlesTree", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_magicParticlesTree_vp, fallbackShader_magicParticlesTree_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.magicParticlesTreeShader, "magicParticlesTree", attribs, qtrue, qfalse, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_magicParticlesTree_vp, fallbackShader_magicParticlesTree_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load magicParticlesTree shader!");
 	}
@@ -2799,7 +3220,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0 | ATTR_COLOR | ATTR_NORMAL | ATTR_TEXCOORD1 | ATTR_POSITION2 | ATTR_NORMAL2;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.magicParticlesFireFlyShader, "magicParticlesFireFly", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_magicParticlesFireFly_vp, fallbackShader_magicParticlesFireFly_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.magicParticlesFireFlyShader, "magicParticlesFireFly", attribs, qtrue, qfalse, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_magicParticlesFireFly_vp, fallbackShader_magicParticlesFireFly_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load magicParticlesFireFly shader!");
 	}
@@ -2808,19 +3229,9 @@ int GLSL_BeginLoadGPUShaders(void)
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0 | ATTR_COLOR | ATTR_NORMAL | ATTR_TEXCOORD1 | ATTR_POSITION2 | ATTR_NORMAL2;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.portalShader, "portal", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_portal_vp, fallbackShader_portal_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.portalShader, "portal", attribs, qtrue, qfalse, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_portal_vp, fallbackShader_portal_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load portal shader!");
-	}
-
-
-	attribs = ATTR_POSITION | ATTR_TEXCOORD0 | ATTR_COLOR | ATTR_NORMAL | ATTR_TEXCOORD1 | ATTR_POSITION2 | ATTR_NORMAL2 | ATTR_BONE_INDEXES | ATTR_BONE_WEIGHTS;
-
-	extradefines[0] = '\0';
-
-	if (!GLSL_BeginLoadGPUShader(&tr.furShader, "fur", attribs, qtrue, qfalse, qtrue, extradefines, qtrue, "330 core", fallbackShader_fur_vp, fallbackShader_fur_fp, NULL, NULL, fallbackShader_fur_gs))
-	{
-		ri->Error(ERR_FATAL, "Could not load fur shader!");
 	}
 
 
@@ -2829,7 +3240,7 @@ int GLSL_BeginLoadGPUShaders(void)
 
 		extradefines[0] = '\0';
 
-		if (!GLSL_BeginLoadGPUShader(&tr.foliageShader, "foliage", attribs, qtrue, qtrue, qtrue, extradefines, qtrue, "400 core", fallbackShader_foliage_vp, fallbackShader_foliage_fp, fallbackShader_foliage_cs, fallbackShader_foliage_es, fallbackShader_foliage_gs))
+		if (!GLSL_BeginLoadGPUShader(&tr.foliageShader, "foliage", attribs, qtrue, qtrue, qtrue, qtrue, extradefines, qtrue, NULL, fallbackShader_foliage_vp, fallbackShader_foliage_fp, fallbackShader_foliage_cs, fallbackShader_foliage_es, fallbackShader_foliage_gs))
 		{
 			ri->Error(ERR_FATAL, "Could not load foliage shader!");
 		}
@@ -2842,13 +3253,29 @@ int GLSL_BeginLoadGPUShaders(void)
 
 		extradefines[0] = '\0';
 
+#ifdef __HUMANOIDS_BEND_GRASS__
+		Q_strcat(extradefines, 1024, "#define __HUMANOIDS_BEND_GRASS__\n");
+		Q_strcat(extradefines, 1024, va("#define MAX_GRASSBEND_HUMANOIDS %i\n", MAX_GRASSBEND_HUMANOIDS));
+#endif //__HUMANOIDS_BEND_GRASS__
+
+		if (!GLSL_BeginLoadGPUShader(&tr.grassPatchesShader, "grassPatches", attribs, qtrue, qtrue, qtrue, qtrue, extradefines, qtrue, NULL, fallbackShader_grassPatches_vp, fallbackShader_grassPatches_fp, fallbackShader_grassPatches_cs, fallbackShader_grassPatches_es, fallbackShader_grassPatches_gs))
+		{
+			ri->Error(ERR_FATAL, "Could not load grassPatches shader!");
+		}
+
+
+
+		attribs = ATTR_POSITION | ATTR_TEXCOORD0 | ATTR_NORMAL;
+
+		extradefines[0] = '\0';
+
 		Q_strcat(extradefines, 1024, "#define __USE_UNDERWATER_ONLY__\n");
 #ifdef __HUMANOIDS_BEND_GRASS__
 		Q_strcat(extradefines, 1024, "#define __HUMANOIDS_BEND_GRASS__\n");
 		Q_strcat(extradefines, 1024, va("#define MAX_GRASSBEND_HUMANOIDS %i\n", MAX_GRASSBEND_HUMANOIDS));
 #endif //__HUMANOIDS_BEND_GRASS__
 
-		if (!GLSL_BeginLoadGPUShader(&tr.grassShader[0], "grass20", attribs, qtrue, qtrue, qtrue, extradefines, qtrue, "400 core", fallbackShader_grass2_vp, fallbackShader_grass2_fp, fallbackShader_grass2_cs, fallbackShader_grass2_es, fallbackShader_grass2_gs))
+		if (!GLSL_BeginLoadGPUShader(&tr.grassShader[0], "grass20", attribs, qtrue, qtrue, qtrue, qtrue, extradefines, qtrue, NULL, fallbackShader_grass2_vp, fallbackShader_grass2_fp, fallbackShader_grass2_cs, fallbackShader_grass2_es, fallbackShader_grass2_gs))
 		{
 			ri->Error(ERR_FATAL, "Could not load grass0 shader!");
 		}
@@ -2863,7 +3290,7 @@ int GLSL_BeginLoadGPUShaders(void)
 		Q_strcat(extradefines, 1024, va("#define MAX_GRASSBEND_HUMANOIDS %i\n", MAX_GRASSBEND_HUMANOIDS));
 #endif //__HUMANOIDS_BEND_GRASS__
 
-		if (!GLSL_BeginLoadGPUShader(&tr.grassShader[1], "grass21", attribs, qtrue, qtrue, qtrue, extradefines, qtrue, "400 core", fallbackShader_grass2_vp, fallbackShader_grass2_fp, fallbackShader_grass2_cs, fallbackShader_grass2_es, fallbackShader_grass2_gs))
+		if (!GLSL_BeginLoadGPUShader(&tr.grassShader[1], "grass21", attribs, qtrue, qtrue, qtrue, qtrue, extradefines, qtrue, NULL, fallbackShader_grass2_vp, fallbackShader_grass2_fp, fallbackShader_grass2_cs, fallbackShader_grass2_es, fallbackShader_grass2_gs))
 		{
 			ri->Error(ERR_FATAL, "Could not load grass21 shader!");
 		}
@@ -2875,7 +3302,7 @@ int GLSL_BeginLoadGPUShaders(void)
 
 		extradefines[0] = '\0';
 
-		if (!GLSL_BeginLoadGPUShader(&tr.vinesShader, "vines", attribs, qtrue, qtrue, qtrue, extradefines, qtrue, "400 core", fallbackShader_vines_vp, fallbackShader_vines_fp, fallbackShader_vines_cs, fallbackShader_vines_es, fallbackShader_vines_gs))
+		if (!GLSL_BeginLoadGPUShader(&tr.vinesShader, "vines", attribs, qtrue, qtrue, qtrue, qtrue, extradefines, qtrue, NULL, fallbackShader_vines_vp, fallbackShader_vines_fp, fallbackShader_vines_cs, fallbackShader_vines_es, fallbackShader_vines_gs))
 		{
 			ri->Error(ERR_FATAL, "Could not load vines shader!");
 		}
@@ -2887,7 +3314,7 @@ int GLSL_BeginLoadGPUShaders(void)
 
 		extradefines[0] = '\0';
 
-		if (!GLSL_BeginLoadGPUShader(&tr.mistShader, "mist", attribs, qtrue, qtrue, qtrue, extradefines, qtrue, "400 core", fallbackShader_mist_vp, fallbackShader_mist_fp, fallbackShader_mist_cs, fallbackShader_mist_es, fallbackShader_mist_gs))
+		if (!GLSL_BeginLoadGPUShader(&tr.mistShader, "mist", attribs, qtrue, qtrue, qtrue, qtrue, extradefines, qtrue, NULL, fallbackShader_mist_vp, fallbackShader_mist_fp, fallbackShader_mist_cs, fallbackShader_mist_es, fallbackShader_mist_gs))
 		{
 			ri->Error(ERR_FATAL, "Could not load mist shader!");
 		}
@@ -2899,7 +3326,7 @@ int GLSL_BeginLoadGPUShaders(void)
 
 	Q_strcat(extradefines, 1024, "#define USE_PCF\n");
 
-	if (!GLSL_BeginLoadGPUShader(&tr.pshadowShader[0], "pshadow0", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_pshadow_vp, fallbackShader_pshadow_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.pshadowShader[0], "pshadow0", attribs, qtrue, qfalse, qfalse, qfalse/*qtrue - only 2*/, extradefines, qtrue, NULL, fallbackShader_pshadow_vp, fallbackShader_pshadow_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load pshadow0 shader!");
 	}
@@ -2910,7 +3337,7 @@ int GLSL_BeginLoadGPUShaders(void)
 
 	Q_strcat(extradefines, 1024, "#define USE_PCF\n#define USE_TESSELLATION\n");
 
-	if (!GLSL_BeginLoadGPUShader(&tr.pshadowShader[1], "pshadow1", attribs, qtrue, qtrue, qfalse, extradefines, qtrue, NULL, fallbackShader_pshadow_vp, fallbackShader_pshadow_fp, fallbackShader_tessellation_cs, fallbackShader_tessellation_es, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.pshadowShader[1], "pshadow1", attribs, qtrue, qtrue, qfalse, qfalse/*qtrue - only 2*/, extradefines, qtrue, NULL, fallbackShader_pshadow_vp, fallbackShader_pshadow_fp, fallbackShader_tessellation_cs, fallbackShader_tessellation_es, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load pshadow1 shader!");
 	}
@@ -2920,7 +3347,7 @@ int GLSL_BeginLoadGPUShaders(void)
 
 	Q_strcat(extradefines, 1024, "#define USE_PCF\n#define USE_TESSELLATION\n");
 
-	if (!GLSL_BeginLoadGPUShader(&tr.pshadowShader[2], "pshadow2", attribs, qtrue, qtrue, qfalse, extradefines, qtrue, NULL, fallbackShader_pshadow_vp, fallbackShader_pshadow_fp, fallbackShader_tessellationTerrain_cs, fallbackShader_tessellationTerrain_es, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.pshadowShader[2], "pshadow2", attribs, qtrue, qtrue, qfalse, qfalse/*qtrue - only 2*/, extradefines, qtrue, NULL, fallbackShader_pshadow_vp, fallbackShader_pshadow_fp, fallbackShader_tessellationTerrain_cs, fallbackShader_tessellationTerrain_es, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load pshadow2 shader!");
 	}
@@ -2930,26 +3357,27 @@ int GLSL_BeginLoadGPUShaders(void)
 
 	Q_strcat(extradefines, 1024, "#define USE_PCF\n#define USE_TESSELLATION_3D\n");
 
-	if (!GLSL_BeginLoadGPUShader(&tr.pshadowShader[3], "pshadow3", attribs, qtrue, qtrue, qfalse, extradefines, qtrue, NULL, fallbackShader_pshadow_vp, fallbackShader_pshadow_fp, fallbackShader_tessellation3D_cs, fallbackShader_tessellation3D_es, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.pshadowShader[3], "pshadow3", attribs, qtrue, qtrue, qfalse, qfalse/*qtrue - only 2*/, extradefines, qtrue, NULL, fallbackShader_pshadow_vp, fallbackShader_pshadow_fp, fallbackShader_tessellation3D_cs, fallbackShader_tessellation3D_es, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load pshadow3 shader!");
 	}
 #endif //__PSHADOW_TESSELLATION__
 
 
+	/*
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.down4xShader, "down4x", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_down4x_vp, fallbackShader_down4x_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.down4xShader, "down4x", attribs, qtrue, qfalse, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_down4x_vp, fallbackShader_down4x_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load down4x shader!");
 	}
-
+	*/
 
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.bokehShader, "bokeh", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_bokeh_vp, fallbackShader_bokeh_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.bokehShader, "bokeh", attribs, qtrue, qfalse, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_bokeh_vp, fallbackShader_bokeh_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load bokeh shader!");
 	}
@@ -2958,7 +3386,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.tonemapShader, "tonemap", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_tonemap_vp, fallbackShader_tonemap_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.tonemapShader, "tonemap", attribs, qtrue, qfalse, qfalse, qfalse /* FIXME */, extradefines, qtrue, NULL, fallbackShader_tonemap_vp, fallbackShader_tonemap_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load tonemap shader!");
 	}
@@ -2975,26 +3403,18 @@ int GLSL_BeginLoadGPUShaders(void)
 		char shaderName[128] = { 0 };
 		sprintf(shaderName, "calclevels4x%i", i);
 
-		if (!GLSL_BeginLoadGPUShader(&tr.calclevels4xShader[i], shaderName, attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_calclevels4x_vp, fallbackShader_calclevels4x_fp, NULL, NULL, NULL))
+		if (!GLSL_BeginLoadGPUShader(&tr.calclevels4xShader[i], shaderName, attribs, qtrue, qfalse, qfalse, qfalse /* FIXME */, extradefines, qtrue, NULL, fallbackShader_calclevels4x_vp, fallbackShader_calclevels4x_fp, NULL, NULL, NULL))
 		{
 			ri->Error(ERR_FATAL, "Could not load calclevels4x%i shader!", i);
 		}
 	}
 
 
-	attribs = ATTR_POSITION | ATTR_TEXCOORD0;
-	extradefines[0] = '\0';
-
-	if (!GLSL_BeginLoadGPUShader(&tr.shadowmaskShader, "shadowmask", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_shadowmask_vp, fallbackShader_shadowmask_fp, NULL, NULL, NULL))
-	{
-		ri->Error(ERR_FATAL, "Could not load shadowmask shader!");
-	}
-
 
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.ssaoShader, "ssao", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_ssao_vp, fallbackShader_ssao_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.ssaoShader, "ssao", attribs, qtrue, qfalse, qfalse, qtrue, extradefines, qtrue, NULL, fallbackShader_ssao_vp, fallbackShader_ssao_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load ssao shader!");
 	}
@@ -3003,7 +3423,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	/*attribs = ATTR_POSITION | ATTR_TEXCOORD0;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.ssdoShader, "ssdo", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_ssdo_vp, fallbackShader_ssdo_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.ssdoShader, "ssdo", attribs, qtrue, qfalse, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_ssdo_vp, fallbackShader_ssdo_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load ssdo shader!");
 	}
@@ -3011,7 +3431,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.ssdoBlurShader, "ssdoBlur", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_ssdoBlur_vp, fallbackShader_ssdoBlur_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.ssdoBlurShader, "ssdoBlur", attribs, qtrue, qfalse, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_ssdoBlur_vp, fallbackShader_ssdoBlur_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load ssdoBlur shader!");
 	}*/
@@ -3020,7 +3440,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.sssShader, "sss", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_sss_vp, fallbackShader_sss_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.sssShader, "sss", attribs, qtrue, qfalse, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_sss_vp, fallbackShader_sss_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load sss shader!");
 	}
@@ -3028,7 +3448,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.sssBlurShader, "sssBlur", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_sssBlur_vp, fallbackShader_sssBlur_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.sssBlurShader, "sssBlur", attribs, qtrue, qfalse, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_sssBlur_vp, fallbackShader_sssBlur_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load sssBlur shader!");
 	}
@@ -3038,13 +3458,13 @@ int GLSL_BeginLoadGPUShaders(void)
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0 | ATTR_NORMAL;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.surfaceSpriteShader, "surfaceSprite", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_surfaceSprite_vp, fallbackShader_surfaceSprite_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.surfaceSpriteShader, "surfaceSprite", attribs, qtrue, qfalse, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_surfaceSprite_vp, fallbackShader_surfaceSprite_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load surfaceSprite shader!");
 	}
 #endif //__XYC_SURFACE_SPRITES__
 
-
+	/*
 	for (i = 0; i < 2; i++)
 	{
 		attribs = ATTR_POSITION | ATTR_TEXCOORD0;
@@ -3057,11 +3477,12 @@ int GLSL_BeginLoadGPUShaders(void)
 
 		char shaderName[128] = { 0 };
 		sprintf(shaderName, "depthBlur%i", i);
-		if (!GLSL_BeginLoadGPUShader(&tr.depthBlurShader[i], shaderName, attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_depthblur_vp, fallbackShader_depthblur_fp, NULL, NULL, NULL))
+		if (!GLSL_BeginLoadGPUShader(&tr.depthBlurShader[i], shaderName, attribs, qtrue, qfalse, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_depthblur_vp, fallbackShader_depthblur_fp, NULL, NULL, NULL))
 		{
 			ri->Error(ERR_FATAL, "Could not load depthBlur%i shader!", i);
 		}
 	}
+	*/
 
 #if 0
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0;
@@ -3086,7 +3507,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	extradefines[0] = '\0';
 	Q_strcat(extradefines, 1024, "#define BLUR_X\n");
 
-	if (!GLSL_BeginLoadGPUShader(&tr.gaussianBlurShader[0], "gaussian_blur0", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_gaussian_blur_vp, fallbackShader_gaussian_blur_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.gaussianBlurShader[0], "gaussian_blur0", attribs, qtrue, qfalse, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_gaussian_blur_vp, fallbackShader_gaussian_blur_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load gaussian_blur0 (X-direction) shader!");
 	}
@@ -3094,21 +3515,21 @@ int GLSL_BeginLoadGPUShaders(void)
 	attribs = 0;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.gaussianBlurShader[1], "gaussian_blur1", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_gaussian_blur_vp, fallbackShader_gaussian_blur_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.gaussianBlurShader[1], "gaussian_blur1", attribs, qtrue, qfalse, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_gaussian_blur_vp, fallbackShader_gaussian_blur_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load gaussian_blur1 (Y-direction) shader!");
 	}
 
 	attribs = 0;
 	extradefines[0] = '\0';
-	if (!GLSL_BeginLoadGPUShader(&tr.dglowDownsample, "dglow_downsample", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_dglow_downsample_vp, fallbackShader_dglow_downsample_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.dglowDownsample, "dglow_downsample", attribs, qtrue, qfalse, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_dglow_downsample_vp, fallbackShader_dglow_downsample_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load dynamic glow downsample shader!");
 	}
 
 	attribs = 0;
 	extradefines[0] = '\0';
-	if (!GLSL_BeginLoadGPUShader(&tr.dglowUpsample, "dglow_upsample", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_dglow_upsample_vp, fallbackShader_dglow_upsample_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.dglowUpsample, "dglow_upsample", attribs, qtrue, qfalse, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_dglow_upsample_vp, fallbackShader_dglow_upsample_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load dynamic glow upsample shader!");
 	}
@@ -3120,7 +3541,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.darkexpandShader, "darkexpand", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_darkexpand_vp, fallbackShader_darkexpand_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.darkexpandShader, "darkexpand", attribs, qtrue, qfalse, qfalse, qfalse/*qtrue - only 2*/, extradefines, qtrue, NULL, fallbackShader_darkexpand_vp, fallbackShader_darkexpand_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load darkexpand shader!");
 	}
@@ -3128,7 +3549,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.multipostShader, "multipost", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_multipost_vp, fallbackShader_multipost_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.multipostShader, "multipost", attribs, qtrue, qfalse, qfalse, qfalse/*qtrue - unused*/, extradefines, qtrue, NULL, fallbackShader_multipost_vp, fallbackShader_multipost_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load multipost shader!");
 	}
@@ -3138,7 +3559,7 @@ int GLSL_BeginLoadGPUShaders(void)
 
 	Q_strcat(extradefines, 1024, "#define DUAL_PASS\n");
 
-	if (!GLSL_BeginLoadGPUShader(&tr.volumeLightShader[0], "volumelight0", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_volumelight_vp, fallbackShader_volumelight_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.volumeLightShader[0], "volumelight0", attribs, qtrue, qfalse, qfalse, qtrue, extradefines, qtrue, NULL, fallbackShader_volumelight_vp, fallbackShader_volumelight_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load volumelight0 shader!");
 	}
@@ -3149,7 +3570,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	Q_strcat(extradefines, 1024, "#define DUAL_PASS\n");
 	Q_strcat(extradefines, 1024, "#define MQ_VOLUMETRIC\n");
 
-	if (!GLSL_BeginLoadGPUShader(&tr.volumeLightShader[1], "volumelight1", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_volumelight_vp, fallbackShader_volumelight_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.volumeLightShader[1], "volumelight1", attribs, qtrue, qfalse, qfalse, qtrue, extradefines, qtrue, NULL, fallbackShader_volumelight_vp, fallbackShader_volumelight_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load volumelight1 shader!");
 	}
@@ -3160,7 +3581,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	Q_strcat(extradefines, 1024, "#define DUAL_PASS\n");
 	Q_strcat(extradefines, 1024, "#define HQ_VOLUMETRIC\n");
 
-	if (!GLSL_BeginLoadGPUShader(&tr.volumeLightShader[2], "volumelight2", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_volumelight_vp, fallbackShader_volumelight_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.volumeLightShader[2], "volumelight2", attribs, qtrue, qfalse, qfalse, qtrue, extradefines, qtrue, NULL, fallbackShader_volumelight_vp, fallbackShader_volumelight_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load volumelight2 shader!");
 	}
@@ -3168,39 +3589,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0;
 	extradefines[0] = '\0';
 
-	Q_strcat(extradefines, 1024, "#define DUAL_PASS\n");
-
-	if (!GLSL_BeginLoadGPUShader(&tr.volumeLightInvertedShader[0], "volumelightInverted0", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_volumelightInverted_vp, fallbackShader_volumelightInverted_fp, NULL, NULL, NULL))
-	{
-		ri->Error(ERR_FATAL, "Could not load volumelightInverted0 shader!");
-	}
-
-	attribs = ATTR_POSITION | ATTR_TEXCOORD0;
-	extradefines[0] = '\0';
-
-	Q_strcat(extradefines, 1024, "#define DUAL_PASS\n");
-	Q_strcat(extradefines, 1024, "#define MQ_VOLUMETRIC\n");
-
-	if (!GLSL_BeginLoadGPUShader(&tr.volumeLightInvertedShader[1], "volumelightInverted1", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_volumelightInverted_vp, fallbackShader_volumelightInverted_fp, NULL, NULL, NULL))
-	{
-		ri->Error(ERR_FATAL, "Could not load volumelightInverted1 shader!");
-	}
-
-	attribs = ATTR_POSITION | ATTR_TEXCOORD0;
-	extradefines[0] = '\0';
-
-	Q_strcat(extradefines, 1024, "#define DUAL_PASS\n");
-	Q_strcat(extradefines, 1024, "#define HQ_VOLUMETRIC\n");
-
-	if (!GLSL_BeginLoadGPUShader(&tr.volumeLightInvertedShader[2], "volumelightInverted2", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_volumelightInverted_vp, fallbackShader_volumelightInverted_fp, NULL, NULL, NULL))
-	{
-		ri->Error(ERR_FATAL, "Could not load volumelightInverted2 shader!");
-	}
-
-	attribs = ATTR_POSITION | ATTR_TEXCOORD0;
-	extradefines[0] = '\0';
-
-	if (!GLSL_BeginLoadGPUShader(&tr.volumeLightCombineShader, "volumelightCombine", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_volumelightCombine_vp, fallbackShader_volumelightCombine_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.volumeLightCombineShader, "volumelightCombine", attribs, qtrue, qfalse, qfalse, qfalse/*qtrue - why no worky... wtf*/, extradefines, qtrue, NULL, fallbackShader_volumelightCombine_vp, fallbackShader_volumelightCombine_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load volumelightCombine shader!");
 	}
@@ -3208,7 +3597,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.bloomBlurShader, "bloom_blur", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_bloom_blur_vp, fallbackShader_bloom_blur_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.bloomBlurShader, "bloom_blur", attribs, qtrue, qfalse, qfalse, qfalse/*qtrue - only 1*/, extradefines, qtrue, NULL, fallbackShader_bloom_blur_vp, fallbackShader_bloom_blur_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load bloom_blur shader!");
 	}
@@ -3216,7 +3605,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.bloomCombineShader, "bloom_combine", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_bloom_combine_vp, fallbackShader_bloom_combine_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.bloomCombineShader, "bloom_combine", attribs, qtrue, qfalse, qfalse, qfalse/*qtrue - only 2*/, extradefines, qtrue, NULL, fallbackShader_bloom_combine_vp, fallbackShader_bloom_combine_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load bloom_combine shader!");
 	}
@@ -3224,7 +3613,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	/*attribs = ATTR_POSITION | ATTR_TEXCOORD0;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.lensflareShader, "lensflare", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_lensflare_vp, fallbackShader_lensflare_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.lensflareShader, "lensflare", attribs, qtrue, qfalse, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_lensflare_vp, fallbackShader_lensflare_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load lensflare shader!");
 	}*/
@@ -3232,7 +3621,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.anamorphicBlurShader, "anamorphic_blur", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_anamorphic_blur_vp, fallbackShader_anamorphic_blur_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.anamorphicBlurShader, "anamorphic_blur", attribs, qtrue, qfalse, qfalse, qfalse/*qtrue - only 1*/, extradefines, qtrue, NULL, fallbackShader_anamorphic_blur_vp, fallbackShader_anamorphic_blur_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load anamorphic_blur shader!");
 	}
@@ -3240,7 +3629,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.anamorphicCombineShader, "anamorphic_combine", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_anamorphic_combine_vp, fallbackShader_anamorphic_combine_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.anamorphicCombineShader, "anamorphic_combine", attribs, qtrue, qfalse, qfalse, qfalse/*qtrue - only 2*/, extradefines, qtrue, NULL, fallbackShader_anamorphic_combine_vp, fallbackShader_anamorphic_combine_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load anamorphic_combine shader!");
 	}
@@ -3248,7 +3637,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.cellShadeShader, "cellShade", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_cellShade_vp, fallbackShader_cellShade_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.cellShadeShader, "cellShade", attribs, qtrue, qfalse, qfalse, qfalse/*qtrue - 3 but rarely used*/, extradefines, qtrue, NULL, fallbackShader_cellShade_vp, fallbackShader_cellShade_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load cellShade shader!");
 	}
@@ -3256,7 +3645,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.paintShader, "paint", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_paint_vp, fallbackShader_paint_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.paintShader, "paint", attribs, qtrue, qfalse, qfalse, qfalse/*qtrue - only 1*/, extradefines, qtrue, NULL, fallbackShader_paint_vp, fallbackShader_paint_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load paint shader!");
 	}
@@ -3264,7 +3653,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.magicdetailShader, "magicdetail", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_magicdetail_vp, fallbackShader_magicdetail_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.magicdetailShader, "magicdetail", attribs, qtrue, qfalse, qfalse, qfalse/*qtrue - only 2*/, extradefines, qtrue, NULL, fallbackShader_magicdetail_vp, fallbackShader_magicdetail_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load magicdetail shader!");
 	}
@@ -3272,7 +3661,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0 | ATTR_NORMAL;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.waterPostShader[0], "waterPost0", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_waterPost_vp, fallbackShader_waterPost_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.waterPostShader[0], "waterPost0", attribs, qtrue, qfalse, qfalse, qfalse/*qtrue FIXME*/, extradefines, qtrue, NULL, fallbackShader_waterPost_vp, fallbackShader_waterPost_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load waterPost[0] shader!");
 	}
@@ -3282,7 +3671,7 @@ int GLSL_BeginLoadGPUShaders(void)
 
 	Q_strcat(extradefines, 1024, "#define USE_REFLECTION\n");
 
-	if (!GLSL_BeginLoadGPUShader(&tr.waterPostShader[1], "waterPost1", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_waterPost_vp, fallbackShader_waterPost_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.waterPostShader[1], "waterPost1", attribs, qtrue, qfalse, qfalse, qfalse/*qtrue FIXME*/, extradefines, qtrue, NULL, fallbackShader_waterPost_vp, fallbackShader_waterPost_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load waterPost[1] shader!");
 	}
@@ -3293,7 +3682,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	Q_strcat(extradefines, 1024, "#define USE_REFLECTION\n");
 	Q_strcat(extradefines, 1024, "#define USE_RAYTRACE\n");
 
-	if (!GLSL_BeginLoadGPUShader(&tr.waterPostShader[2], "waterPost2", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_waterPost_vp, fallbackShader_waterPost_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.waterPostShader[2], "waterPost2", attribs, qtrue, qfalse, qfalse, qfalse/*qtrue FIXME*/, extradefines, qtrue, NULL, fallbackShader_waterPost_vp, fallbackShader_waterPost_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load waterPost[2] shader!");
 	}
@@ -3301,7 +3690,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0 | ATTR_NORMAL;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.waterPostShader[3], "waterPost3", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_waterPost2_vp, fallbackShader_waterPost2_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.waterPostShader[3], "waterPost3", attribs, qtrue, qfalse, qfalse, qfalse/*qtrue FIXME*/, extradefines, qtrue, NULL, fallbackShader_waterPost2_vp, fallbackShader_waterPost2_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load waterPost[3] shader!");
 	}
@@ -3311,7 +3700,7 @@ int GLSL_BeginLoadGPUShaders(void)
 
 	Q_strcat(extradefines, 1024, "#define USE_REFLECTION\n");
 
-	if (!GLSL_BeginLoadGPUShader(&tr.waterPostShader[4], "waterPost4", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_waterPost2_vp, fallbackShader_waterPost2_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.waterPostShader[4], "waterPost4", attribs, qtrue, qfalse, qfalse, qfalse/*qtrue FIXME*/, extradefines, qtrue, NULL, fallbackShader_waterPost2_vp, fallbackShader_waterPost2_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load waterPost[4] shader!");
 	}
@@ -3322,7 +3711,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	Q_strcat(extradefines, 1024, "#define USE_REFLECTION\n");
 	Q_strcat(extradefines, 1024, "#define USE_RAYTRACE\n");
 
-	if (!GLSL_BeginLoadGPUShader(&tr.waterPostShader[5], "waterPost5", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_waterPost2_vp, fallbackShader_waterPost2_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.waterPostShader[5], "waterPost5", attribs, qtrue, qfalse, qfalse, qfalse/*qtrue FIXME*/, extradefines, qtrue, NULL, fallbackShader_waterPost2_vp, fallbackShader_waterPost2_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load waterPost[5] shader!");
 	}
@@ -3330,7 +3719,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0 | ATTR_NORMAL;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.waterReflectionShader, "waterReflection", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_waterReflection_vp, fallbackShader_waterReflection_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.waterReflectionShader, "waterReflection", attribs, qtrue, qfalse, qfalse, qfalse/*qtrue FIXME*/, extradefines, qtrue, NULL, fallbackShader_waterReflection_vp, fallbackShader_waterReflection_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load waterReflection shader!");
 	}
@@ -3339,7 +3728,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0 | ATTR_NORMAL;
 	extradefines[0] = '\0';
 
-	if(!GLSL_BeginLoadGPUShader(&tr.transparancyPostShader, "transparancyPost", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_transparancyPost_vp, fallbackShader_transparancyPost_fp, NULL, NULL, NULL))
+	if(!GLSL_BeginLoadGPUShader(&tr.transparancyPostShader, "transparancyPost", attribs, qtrue, qfalse, qfalse, qfalse/*qtrue*/, extradefines, qtrue, NULL, fallbackShader_transparancyPost_vp, fallbackShader_transparancyPost_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load transparancyPost shader!");
 	}
@@ -3348,7 +3737,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.fastBlurShader, "fastBlur", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_fastBlur_vp, fallbackShader_fastBlur_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.fastBlurShader, "fastBlur", attribs, qtrue, qfalse, qfalse, qfalse/*qtrue - only 2*/, extradefines, qtrue, NULL, fallbackShader_fastBlur_vp, fallbackShader_fastBlur_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load fastBlur shader!");
 	}
@@ -3357,28 +3746,20 @@ int GLSL_BeginLoadGPUShaders(void)
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.bloomRaysShader, "bloomRays", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_bloomRays_vp, fallbackShader_bloomRays_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.bloomRaysShader, "bloomRays", attribs, qtrue, qfalse, qfalse, qtrue, extradefines, qtrue, NULL, fallbackShader_bloomRays_vp, fallbackShader_bloomRays_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load bloomRays shader!");
 	}
 
 
-	//dofAvgDepth
-	attribs = ATTR_POSITION | ATTR_TEXCOORD0;
-	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.dofFocusDepthShader, "dofFocusDepth", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_dofFocusDepth_vp, fallbackShader_dofFocusDepth_fp, NULL, NULL, NULL))
-	{
-		ri->Error(ERR_FATAL, "Could not load dofFocusDepth shader!");
-	}
-
-
+	/*
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0;
 	extradefines[0] = '\0';
 
 	Q_strcat(extradefines, 1024, "#define OLD_BLUR\n");
 
-	if (!GLSL_BeginLoadGPUShader(&tr.distanceBlurShader[0], "distanceBlur0", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_distanceBlur_vp, fallbackShader_distanceBlur_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.distanceBlurShader[0], "distanceBlur0", attribs, qtrue, qfalse, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_distanceBlur_vp, fallbackShader_distanceBlur_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load distanceBlur0 shader!");
 	}
@@ -3388,7 +3769,7 @@ int GLSL_BeginLoadGPUShaders(void)
 
 	Q_strcat(extradefines, 1024, "#define FAST_BLUR\n");
 
-	if (!GLSL_BeginLoadGPUShader(&tr.distanceBlurShader[1], "distanceBlur1", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_distanceBlur_vp, fallbackShader_distanceBlur_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.distanceBlurShader[1], "distanceBlur1", attribs, qtrue, qfalse, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_distanceBlur_vp, fallbackShader_distanceBlur_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load distanceBlur1 shader!");
 	}
@@ -3398,7 +3779,7 @@ int GLSL_BeginLoadGPUShaders(void)
 
 	Q_strcat(extradefines, 1024, "#define MEDIUM_BLUR\n");
 
-	if (!GLSL_BeginLoadGPUShader(&tr.distanceBlurShader[2], "distanceBlur2", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_distanceBlur_vp, fallbackShader_distanceBlur_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.distanceBlurShader[2], "distanceBlur2", attribs, qtrue, qfalse, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_distanceBlur_vp, fallbackShader_distanceBlur_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load distanceBlur2 shader!");
 	}
@@ -3408,17 +3789,18 @@ int GLSL_BeginLoadGPUShaders(void)
 
 	Q_strcat(extradefines, 1024, "#define HIGH_BLUR\n");
 
-	if (!GLSL_BeginLoadGPUShader(&tr.distanceBlurShader[3], "distanceBlur3", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_distanceBlur_vp, fallbackShader_distanceBlur_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.distanceBlurShader[3], "distanceBlur3", attribs, qtrue, qfalse, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_distanceBlur_vp, fallbackShader_distanceBlur_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load distanceBlur3 shader!");
 	}
+	*/
 
 
 
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.testshaderShader, "testshader", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_testshader_vp, fallbackShader_testshader_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.testshaderShader, "testshader", attribs, qtrue, qfalse, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_testshader_vp, fallbackShader_testshader_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load testshader shader!");
 	}
@@ -3426,7 +3808,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.linearizeDepthShader, "linearizeDepth", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_linearizeDepth_vp, fallbackShader_linearizeDepth_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.linearizeDepthShader, "linearizeDepth", attribs, qtrue, qfalse, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_linearizeDepth_vp, fallbackShader_linearizeDepth_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load linearizeDepth shader!");
 	}
@@ -3434,7 +3816,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.showNormalsShader, "showNormals", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_showNormals_vp, fallbackShader_showNormals_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.showNormalsShader, "showNormals", attribs, qtrue, qfalse, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_showNormals_vp, fallbackShader_showNormals_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load showNormals shader!");
 	}
@@ -3442,7 +3824,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.showDepthShader, "showDepth", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_showDepth_vp, fallbackShader_showDepth_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.showDepthShader, "showDepth", attribs, qtrue, qfalse, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_showDepth_vp, fallbackShader_showDepth_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load showDepth shader!");
 	}
@@ -3452,12 +3834,27 @@ int GLSL_BeginLoadGPUShaders(void)
 		attribs = ATTR_POSITION | ATTR_TEXCOORD0;
 		extradefines[0] = '\0';
 
-		if (!GLSL_BeginLoadGPUShader(&tr.proceduralShader, "procedural", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_procedural_vp, fallbackShader_procedural_fp, NULL, NULL, NULL))
+		if (!GLSL_BeginLoadGPUShader(&tr.proceduralShader, "procedural", attribs, qtrue, qfalse, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_procedural_vp, fallbackShader_procedural_fp, NULL, NULL, NULL))
 		{
 			ri->Error(ERR_FATAL, "Could not load procedural shader!");
 		}
 	}
 #endif //__PROCEDURALS_IN_DEFERRED_SHADER__
+
+	{
+		attribs = ATTR_POSITION | ATTR_TEXCOORD0;
+		extradefines[0] = '\0';
+
+		if (r_sunlightMode->integer >= 2)
+		{
+			Q_strcat(extradefines, 1024, "#define USE_SHADOWMAP\n");
+		}
+
+		if (!GLSL_BeginLoadGPUShader(&tr.fastLightingShader, "fastLighting", attribs, qtrue, qfalse, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_fastLighting_vp, fallbackShader_fastLighting_fp, NULL, NULL, NULL))
+		{
+			ri->Error(ERR_FATAL, "Could not load fastLighting shader!");
+		}
+	}
 
 	{
 		attribs = ATTR_POSITION | ATTR_TEXCOORD0;
@@ -3481,7 +3878,11 @@ int GLSL_BeginLoadGPUShaders(void)
 
 		Q_strcat(extradefines, 1024, "#define __FAST_LIGHTING__\n");
 
-		if (!GLSL_BeginLoadGPUShader(&tr.deferredLightingShader[0], "deferredLighting0", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_deferredLighting_vp, fallbackShader_deferredLighting_fp, NULL, NULL, NULL))
+#ifdef __REALTIME_CUBEMAP__
+		Q_strcat(extradefines, 1024, "#define REALTIME_CUBEMAPS\n");
+#endif //__REALTIME_CUBEMAP__
+
+		if (!GLSL_BeginLoadGPUShader(&tr.deferredLightingShader[0], "deferredLighting0", attribs, qtrue, qfalse, qfalse, qtrue, extradefines, qtrue, NULL, fallbackShader_deferredLighting_vp, fallbackShader_deferredLighting_fp, NULL, NULL, NULL))
 		{
 			ri->Error(ERR_FATAL, "Could not load deferredLighting0 shader!");
 		}
@@ -3509,7 +3910,11 @@ int GLSL_BeginLoadGPUShaders(void)
 
 		Q_strcat(extradefines, 1024, "#define __NAYAR_LIGHTING__\n");
 
-		if (!GLSL_BeginLoadGPUShader(&tr.deferredLightingShader[1], "deferredLighting1", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_deferredLighting_vp, fallbackShader_deferredLighting_fp, NULL, NULL, NULL))
+#ifdef __REALTIME_CUBEMAP__
+		Q_strcat(extradefines, 1024, "#define REALTIME_CUBEMAPS\n");
+#endif //__REALTIME_CUBEMAP__
+
+		if (!GLSL_BeginLoadGPUShader(&tr.deferredLightingShader[1], "deferredLighting1", attribs, qtrue, qfalse, qfalse, qtrue, extradefines, qtrue, NULL, fallbackShader_deferredLighting_vp, fallbackShader_deferredLighting_fp, NULL, NULL, NULL))
 		{
 			ri->Error(ERR_FATAL, "Could not load deferredLighting1 shader!");
 		}
@@ -3535,7 +3940,11 @@ int GLSL_BeginLoadGPUShaders(void)
 		Q_strcat(extradefines, 1024, "#define __LIGHT_OCCLUSION__\n");
 #endif //__LIGHT_OCCLUSION__
 
-		if (!GLSL_BeginLoadGPUShader(&tr.deferredLightingShader[2], "deferredLighting2", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_deferredLighting_vp, fallbackShader_deferredLighting_fp, NULL, NULL, NULL))
+#ifdef __REALTIME_CUBEMAP__
+		Q_strcat(extradefines, 1024, "#define REALTIME_CUBEMAPS\n");
+#endif //__REALTIME_CUBEMAP__
+
+		if (!GLSL_BeginLoadGPUShader(&tr.deferredLightingShader[2], "deferredLighting2", attribs, qtrue, qfalse, qfalse, qtrue, extradefines, qtrue, NULL, fallbackShader_deferredLighting_vp, fallbackShader_deferredLighting_fp, NULL, NULL, NULL))
 		{
 			ri->Error(ERR_FATAL, "Could not load deferredLighting2 shader!");
 		}
@@ -3544,7 +3953,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.ssdmShader, "ssdm", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_ssdm_vp, fallbackShader_ssdm_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.ssdmShader, "ssdm", attribs, qtrue, qfalse, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_ssdm_vp, fallbackShader_ssdm_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load ssdm shader!");
 	}
@@ -3552,7 +3961,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0;
 	extradefines[0] = '\0';
 	
-	if (!GLSL_BeginLoadGPUShader(&tr.ssdmGenerateShader[0], "ssdmGenerate0", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_ssdmGenerate_vp, fallbackShader_ssdmGenerate_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.ssdmGenerateShader[0], "ssdmGenerate0", attribs, qtrue, qfalse, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_ssdmGenerate_vp, fallbackShader_ssdmGenerate_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load ssdmGenerate0 shader!");
 	}
@@ -3562,7 +3971,7 @@ int GLSL_BeginLoadGPUShaders(void)
 
 	Q_strcat(extradefines, 1024, "#define __HQ_PARALLAX__\n");
 
-	if (!GLSL_BeginLoadGPUShader(&tr.ssdmGenerateShader[1], "ssdmGenerate1", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_ssdmGenerate_vp, fallbackShader_ssdmGenerate_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.ssdmGenerateShader[1], "ssdmGenerate1", attribs, qtrue, qfalse, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_ssdmGenerate_vp, fallbackShader_ssdmGenerate_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load ssdmGenerate1 shader!");
 	}
@@ -3571,7 +3980,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.ssrShader, "ssr", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_ssr_vp, fallbackShader_ssr_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.ssrShader, "ssr", attribs, qtrue, qfalse, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_ssr_vp, fallbackShader_ssr_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load ssr shader!");
 	}
@@ -3579,7 +3988,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.ssrCombineShader, "ssrCombine", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_ssrCombine_vp, fallbackShader_ssrCombine_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.ssrCombineShader, "ssrCombine", attribs, qtrue, qfalse, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_ssrCombine_vp, fallbackShader_ssrCombine_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load ssrCombine shader!");
 	}
@@ -3588,7 +3997,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.colorCorrectionShader, "colorCorrection", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, "330", fallbackShader_colorCorrection_vp, fallbackShader_colorCorrection_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.colorCorrectionShader, "colorCorrection", attribs, qtrue, qfalse, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_colorCorrection_vp, fallbackShader_colorCorrection_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load colorCorrection shader!");
 	}
@@ -3596,45 +4005,47 @@ int GLSL_BeginLoadGPUShaders(void)
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.fogPostShader, "fogPost", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, "330", fallbackShader_fogPost_vp, fallbackShader_fogPost_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.fogPostShader, "fogPost", attribs, qtrue, qfalse, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_fogPost_vp, fallbackShader_fogPost_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load fogPost shader!");
 	}
 
-#if 0
+
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.dofShader, "dof", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_depthOfField_vp, fallbackShader_depthOfField_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.dofFocusDepthShader, "dofFocusDepth", attribs, qtrue, qfalse, qfalse, qfalse/*qtrue - only 1*/, extradefines, qtrue, NULL, fallbackShader_dofFocusDepth_vp, fallbackShader_dofFocusDepth_fp, NULL, NULL, NULL))
 	{
-		ri->Error(ERR_FATAL, "Could not load dof shader!");
+		ri->Error(ERR_FATAL, "Could not load dofFocusDepth shader!");
 	}
-#else
+
+
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0;
 	extradefines[0] = '\0';
 
 	Q_strcat(extradefines, 1024, "#define FAST_DOF\n");
 
-	if (!GLSL_BeginLoadGPUShader(&tr.dofShader[0], "depthOfField0", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_depthOfField2_vp, fallbackShader_depthOfField2_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.dofShader[0], "depthOfField0", attribs, qtrue, qfalse, qfalse, qtrue, extradefines, qtrue, NULL, fallbackShader_depthOfField2_vp, fallbackShader_depthOfField2_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load depthOfField0 shader!");
 	}
-#endif
+
 
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0;
 	extradefines[0] = '\0';
 
 	Q_strcat(extradefines, 1024, "#define MEDIUM_DOF\n");
 
-	if (!GLSL_BeginLoadGPUShader(&tr.dofShader[1], "depthOfField1", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_depthOfField2_vp, fallbackShader_depthOfField2_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.dofShader[1], "depthOfField1", attribs, qtrue, qfalse, qfalse, qtrue, extradefines, qtrue, NULL, fallbackShader_depthOfField2_vp, fallbackShader_depthOfField2_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load depthOfField1 shader!");
 	}
 
+
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.dofShader[2], "depthOfField2", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_depthOfField2_vp, fallbackShader_depthOfField2_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.dofShader[2], "depthOfField2", attribs, qtrue, qfalse, qfalse, qtrue, extradefines, qtrue, NULL, fallbackShader_depthOfField2_vp, fallbackShader_depthOfField2_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load depthOfField2 shader!");
 	}
@@ -3642,7 +4053,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.esharpeningShader, "esharpening", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_esharpening_vp, fallbackShader_esharpening_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.esharpeningShader, "esharpening", attribs, qtrue, qfalse, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_esharpening_vp, fallbackShader_esharpening_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load esharpening shader!");
 	}
@@ -3650,23 +4061,25 @@ int GLSL_BeginLoadGPUShaders(void)
 	/*attribs = ATTR_POSITION | ATTR_TEXCOORD0;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.esharpening2Shader, "esharpening2", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_esharpening2_vp, fallbackShader_esharpening2_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.esharpening2Shader, "esharpening2", attribs, qtrue, qfalse, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_esharpening2_vp, fallbackShader_esharpening2_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load esharpening2 shader!");
 	}*/
 
+
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.fxaaShader, "fxaa", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_fxaa_vp, fallbackShader_fxaa_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.fxaaShader, "fxaa", attribs, qtrue, qfalse, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_fxaa_vp, fallbackShader_fxaa_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load fxaa shader!");
 	}
 
+
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.txaaShader, "txaa", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_txaa_vp, fallbackShader_txaa_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.txaaShader, "txaa", attribs, qtrue, qfalse, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_txaa_vp, fallbackShader_txaa_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load txaa shader!");
 	}
@@ -3674,7 +4087,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.generateNormalMapShader, "generateNormalMap", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, "130", fallbackShader_generateNormalMap_vp, fallbackShader_generateNormalMap_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.generateNormalMapShader, "generateNormalMap", attribs, qtrue, qfalse, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_generateNormalMap_vp, fallbackShader_generateNormalMap_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load generateNormalMap shader!");
 	}
@@ -3682,7 +4095,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.underwaterShader, "underwater", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_underwater_vp, fallbackShader_underwater_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.underwaterShader, "underwater", attribs, qtrue, qfalse, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_underwater_vp, fallbackShader_underwater_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load underwater shader!");
 	}
@@ -3690,7 +4103,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.anaglyphShader, "anaglyph", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_anaglyph_vp, fallbackShader_anaglyph_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.anaglyphShader, "anaglyph", attribs, qtrue, qfalse, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_anaglyph_vp, fallbackShader_anaglyph_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load anaglyph shader!");
 	}
@@ -3699,7 +4112,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0 | ATTR_NORMAL | ATTR_COLOR;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.skyDomeShader, "skyDome", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, "130", fallbackShader_skyDome_vp, fallbackShader_skyDome_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.skyDomeShader, "skyDome", attribs, qtrue, qfalse, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_skyDome_vp, fallbackShader_skyDome_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load skyDome shader!");
 	}
@@ -3712,7 +4125,7 @@ int GLSL_BeginLoadGPUShaders(void)
 
 	Q_strcat(extradefines, 1024, "#define USE_PRIMARY_LIGHT_SPECULAR\n");
 
-	if (!GLSL_BeginLoadGPUShader(&tr.waterPostForwardShader, "waterPostForward", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_waterPostForward_vp, fallbackShader_waterPostForward_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.waterPostForwardShader, "waterPostForward", attribs, qtrue, qfalse, qfalse, qtrue, extradefines, qtrue, NULL, fallbackShader_waterPostForward_vp, fallbackShader_waterPostForward_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load waterPostForward shader!");
 	}
@@ -3726,8 +4139,7 @@ int GLSL_BeginLoadGPUShaders(void)
 #endif //__OCEAN__
 	extradefines[0] = '\0';
 
-	//if (!GLSL_BeginLoadGPUShader(&tr.waterForwardShader, "waterForward", attribs, qtrue, qfalse, qtrue, extradefines, qtrue, NULL, fallbackShader_waterForward_vp, fallbackShader_waterForward_fp, NULL, NULL, fallbackShader_waterForward_gs))
-	if (!GLSL_BeginLoadGPUShader(&tr.waterForwardShader, "waterForward", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_waterForward_vp, fallbackShader_waterForward_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.waterForwardShader, "waterForward", attribs, qtrue, qfalse, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_waterForward_vp, fallbackShader_waterForward_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load waterForward shader!");
 	}
@@ -3740,7 +4152,7 @@ int GLSL_BeginLoadGPUShaders(void)
 #endif //__OCEAN__
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.waterForwardFastShader, "waterForwardFast", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_waterForwardFast_vp, fallbackShader_waterForwardFast_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.waterForwardFastShader, "waterForwardFast", attribs, qtrue, qfalse, qfalse, qfalse/*qtrue*/, extradefines, qtrue, NULL, fallbackShader_waterForwardFast_vp, fallbackShader_waterForwardFast_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load waterForwardFast shader!");
 	}
@@ -3751,7 +4163,7 @@ int GLSL_BeginLoadGPUShaders(void)
 
 	Q_strcat(extradefines, 1024, "#define FAST_HBAO\n");
 
-	if (!GLSL_BeginLoadGPUShader(&tr.hbaoShader, "hbao", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_hbao_vp, fallbackShader_hbao_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.hbaoShader, "hbao", attribs, qtrue, qfalse, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_hbao_vp, fallbackShader_hbao_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load hbao shader!");
 	}
@@ -3759,7 +4171,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.hbao2Shader, "hbao2", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_hbao_vp, fallbackShader_hbao_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.hbao2Shader, "hbao2", attribs, qtrue, qfalse, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_hbao_vp, fallbackShader_hbao_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load hbao2 shader!");
 	}
@@ -3767,7 +4179,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	attribs = ATTR_POSITION | ATTR_TEXCOORD0;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.hbaoCombineShader, "hbaoCombine", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_hbaoCombine_vp, fallbackShader_hbaoCombine_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.hbaoCombineShader, "hbaoCombine", attribs, qtrue, qfalse, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_hbaoCombine_vp, fallbackShader_hbaoCombine_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load hbaoCombine shader!");
 	}*/
@@ -3775,7 +4187,7 @@ int GLSL_BeginLoadGPUShaders(void)
 	attribs = ATTR_INSTANCES_POSITION | ATTR_INSTANCES_TEXCOORD | ATTR_NORMAL;
 	extradefines[0] = '\0';
 
-	if (!GLSL_BeginLoadGPUShader(&tr.cloudsShader, "clouds", attribs, qtrue, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_clouds_vp, fallbackShader_clouds_fp, NULL, NULL, NULL))
+	if (!GLSL_BeginLoadGPUShader(&tr.cloudsShader, "clouds", attribs, qtrue, qfalse, qfalse, qfalse, extradefines, qtrue, NULL, fallbackShader_clouds_vp, fallbackShader_clouds_fp, NULL, NULL, NULL))
 	{
 		ri->Error(ERR_FATAL, "Could not load clouds shader!");
 	}
@@ -3798,7 +4210,7 @@ int GLSL_BeginLoadGPUShaders(void)
 void GLSL_EndLoadGPUShaders(int startTime)
 {
 	int i;
-	int numGenShaders = 0, numLightShaders = 0, numEtcShaders = 0;
+	int numLightShaders = 0, numEtcShaders = 0;
 
 	if (!GLSL_EndLoadGPUShader(&tr.textureColorShader))
 	{
@@ -3872,8 +4284,9 @@ void GLSL_EndLoadGPUShaders(int startTime)
 	GLSL_InitUniforms(&tr.occlusionShader);
 
 	GLSL_BindProgram(&tr.occlusionShader);
-	GLSL_SetUniformInt(&tr.occlusionShader, UNIFORM_TEXTUREMAP, TB_DIFFUSEMAP);
-	GLSL_SetUniformInt(&tr.occlusionShader, UNIFORM_SCREENDEPTHMAP, TB_LIGHTMAP);
+
+	//GLSL_SetUniformInt(&tr.occlusionShader, UNIFORM_TEXTUREMAP, TB_DIFFUSEMAP);
+	//GLSL_SetUniformInt(&tr.occlusionShader, UNIFORM_SCREENDEPTHMAP, TB_LIGHTMAP);
 
 	GLSL_FinishGPUShader(&tr.occlusionShader);
 
@@ -3889,8 +4302,7 @@ void GLSL_EndLoadGPUShaders(int startTime)
 
 	GLSL_BindProgram(&tr.depthAdjustShader);
 
-	//GLSL_SetUniformInt(&tr.depthAdjustShader, UNIFORM_SCREENDEPTHMAP, TB_LIGHTMAP);
-	GLSL_SetUniformInt(&tr.depthAdjustShader, UNIFORM_POSITIONMAP, TB_POSITIONMAP);
+	GLSL_SetUniformInt(&tr.depthAdjustShader, UNIFORM_SCREENDEPTHMAP, TB_LIGHTMAP);
 
 	GLSL_FinishGPUShader(&tr.depthAdjustShader);
 
@@ -4005,7 +4417,7 @@ void GLSL_EndLoadGPUShaders(int startTime)
 	numLightShaders++;
 
 
-
+	/*
 	if (!GLSL_EndLoadGPUShader(&tr.sunPassShader))
 	{
 		ri->Error(ERR_FATAL, "Could not load sun shader!");
@@ -4021,9 +4433,10 @@ void GLSL_EndLoadGPUShaders(int startTime)
 #endif
 
 	numLightShaders++;
+	*/
 
 
-
+	/*
 	if (!GLSL_EndLoadGPUShader(&tr.moonPassShader))
 	{
 		ri->Error(ERR_FATAL, "Could not load moon shader!");
@@ -4040,9 +4453,10 @@ void GLSL_EndLoadGPUShaders(int startTime)
 #endif
 
 	numLightShaders++;
+	*/
 
 
-
+	/*
 	if (!GLSL_EndLoadGPUShader(&tr.planetPassShader))
 	{
 		ri->Error(ERR_FATAL, "Could not load planet shader!");
@@ -4059,6 +4473,7 @@ void GLSL_EndLoadGPUShaders(int startTime)
 #endif
 
 	numLightShaders++;
+	*/
 
 
 
@@ -4188,23 +4603,6 @@ void GLSL_EndLoadGPUShaders(int startTime)
 
 
 
-	if (!GLSL_EndLoadGPUShader(&tr.furShader))
-	{
-		ri->Error(ERR_FATAL, "Could not load fur shader!");
-	}
-
-	GLSL_InitUniforms(&tr.furShader);
-
-	GLSL_BindProgram(&tr.furShader);
-	GLSL_SetUniformInt(&tr.furShader, UNIFORM_DIFFUSEMAP, TB_DIFFUSEMAP);
-	GLSL_SetUniformInt(&tr.furShader, UNIFORM_SPLATCONTROLMAP, TB_SPLATCONTROLMAP);
-
-#if defined(_DEBUG)
-	GLSL_FinishGPUShader(&tr.furShader);
-#endif
-
-	numEtcShaders++;
-
 
 
 	if (!GLSL_EndLoadGPUShader(&tr.foliageShader))
@@ -4234,6 +4632,35 @@ void GLSL_EndLoadGPUShaders(int startTime)
 
 	if (r_foliage->integer)
 	{
+		if (!GLSL_EndLoadGPUShader(&tr.grassPatchesShader))
+		{
+			ri->Error(ERR_FATAL, "Could not load grassPatches shader!");
+		}
+
+		GLSL_InitUniforms(&tr.grassPatchesShader);
+
+		GLSL_BindProgram(&tr.grassPatchesShader);
+
+		// Grass/plant textures...
+		GLSL_SetUniformInt(&tr.grassPatchesShader, UNIFORM_WATER_EDGE_MAP, TB_WATER_EDGE_MAP); // 16 - Sea grass 0...
+
+																						   // Control textures...
+		GLSL_SetUniformInt(&tr.grassPatchesShader, UNIFORM_SPLATCONTROLMAP, TB_SPLATCONTROLMAP);
+		GLSL_SetUniformInt(&tr.grassPatchesShader, UNIFORM_ROADSCONTROLMAP, TB_ROADSCONTROLMAP);
+		GLSL_SetUniformInt(&tr.grassPatchesShader, UNIFORM_HEIGHTMAP, TB_HEIGHTMAP);
+		GLSL_SetUniformInt(&tr.grassPatchesShader, UNIFORM_STEEPMAP, TB_STEEPMAP);
+		GLSL_SetUniformInt(&tr.grassPatchesShader, UNIFORM_STEEPMAP1, TB_STEEPMAP1);
+		GLSL_SetUniformInt(&tr.grassPatchesShader, UNIFORM_STEEPMAP2, TB_STEEPMAP2);
+		GLSL_SetUniformInt(&tr.grassPatchesShader, UNIFORM_STEEPMAP3, TB_STEEPMAP3);
+
+#if defined(_DEBUG)
+		GLSL_FinishGPUShader(&tr.grassPatchesShader[0]);
+#endif
+
+		numEtcShaders++;
+
+
+
 		if (!GLSL_EndLoadGPUShader(&tr.grassShader[0]))
 		{
 			ri->Error(ERR_FATAL, "Could not load grass shader!");
@@ -4336,18 +4763,18 @@ void GLSL_EndLoadGPUShaders(int startTime)
 
 	for (int i = 0; i < 4; i++)
 	{
-		if (!GLSL_EndLoadGPUShader(&tr.shadowmapShader[i]))
+		if (!GLSL_EndLoadGPUShader(&tr.shadowFillShader[i]))
 		{
 			ri->Error(ERR_FATAL, va("Could not load shadowfill%i shader!", i));
 		}
 
-		GLSL_InitUniforms(&tr.shadowmapShader[i]);
-		GLSL_BindProgram(&tr.shadowmapShader[i]);
+		GLSL_InitUniforms(&tr.shadowFillShader[i]);
+		GLSL_BindProgram(&tr.shadowFillShader[i]);
 
-		GLSL_SetUniformInt(&tr.shadowmapShader[i], UNIFORM_ROADSCONTROLMAP, TB_ROADSCONTROLMAP);
+		GLSL_SetUniformInt(&tr.shadowFillShader[i], UNIFORM_ROADSCONTROLMAP, TB_ROADSCONTROLMAP);
 
 #if defined(_DEBUG)
-		GLSL_FinishGPUShader(&tr.shadowmapShader[i]);
+		GLSL_FinishGPUShader(&tr.shadowFillShader[i]);
 #endif
 
 		numEtcShaders++;
@@ -4375,6 +4802,7 @@ void GLSL_EndLoadGPUShaders(int startTime)
 	}
 
 
+	/*
 	if (!GLSL_EndLoadGPUShader(&tr.down4xShader))
 	{
 		ri->Error(ERR_FATAL, "Could not load down4x shader!");
@@ -4390,6 +4818,8 @@ void GLSL_EndLoadGPUShaders(int startTime)
 #endif
 
 	numEtcShaders++;
+	*/
+
 
 	if (!GLSL_EndLoadGPUShader(&tr.bokehShader))
 	{
@@ -4451,12 +4881,10 @@ void GLSL_EndLoadGPUShaders(int startTime)
 	GLSL_InitUniforms(&tr.shadowmaskShader);
 
 	GLSL_BindProgram(&tr.shadowmaskShader);
-	GLSL_SetUniformInt(&tr.shadowmaskShader, UNIFORM_SCREENDEPTHMAP, TB_COLORMAP);
+	GLSL_SetUniformInt(&tr.shadowmaskShader, UNIFORM_SCREENDEPTHMAP, TB_DIFFUSEMAP);
 	GLSL_SetUniformInt(&tr.shadowmaskShader, UNIFORM_SHADOWMAP, TB_SPLATMAP1);
 	GLSL_SetUniformInt(&tr.shadowmaskShader, UNIFORM_SHADOWMAP2, TB_SPLATMAP2);
 	GLSL_SetUniformInt(&tr.shadowmaskShader, UNIFORM_SHADOWMAP3, TB_SPLATMAP3);
-	GLSL_SetUniformInt(&tr.shadowmaskShader, UNIFORM_GLOWMAP, TB_GLOWMAP);
-	GLSL_SetUniformInt(&tr.shadowmaskShader, UNIFORM_SPECULARMAP, TB_SPECULARMAP);
 
 #if defined(_DEBUG)
 	GLSL_FinishGPUShader(&tr.shadowmaskShader);
@@ -4573,6 +5001,7 @@ void GLSL_EndLoadGPUShaders(int startTime)
 #endif //__XYC_SURFACE_SPRITES__
 
 
+	/*
 	for (i = 0; i < 2; i++)
 	{
 		if (!GLSL_EndLoadGPUShader(&tr.depthBlurShader[i]))
@@ -4592,6 +5021,7 @@ void GLSL_EndLoadGPUShaders(int startTime)
 
 		numEtcShaders++;
 	}
+	*/
 
 	for (i = 0; i < 2; i++)
 	{
@@ -4738,28 +5168,6 @@ void GLSL_EndLoadGPUShaders(int startTime)
 
 #if defined(_DEBUG)
 		GLSL_FinishGPUShader(&tr.volumeLightShader[i]);
-#endif
-
-		numEtcShaders++;
-	}
-
-
-	for (int i = 0; i < 3; i++)
-	{
-		if (!GLSL_EndLoadGPUShader(&tr.volumeLightInvertedShader[i]))
-		{
-			ri->Error(ERR_FATAL, "Could not load volumelightInverted shader!");
-		}
-
-		GLSL_InitUniforms(&tr.volumeLightInvertedShader[i]);
-		GLSL_BindProgram(&tr.volumeLightInvertedShader[i]);
-		GLSL_SetUniformInt(&tr.volumeLightInvertedShader[i], UNIFORM_DIFFUSEMAP, TB_DIFFUSEMAP);
-		GLSL_SetUniformInt(&tr.volumeLightInvertedShader[i], UNIFORM_SCREENDEPTHMAP, TB_LIGHTMAP);
-		//GLSL_SetUniformInt(&tr.volumeLightInvertedShader[i], UNIFORM_GLOWMAP, TB_GLOWMAP);
-		//GLSL_SetUniformInt(&tr.volumeLightInvertedShader[i], UNIFORM_POSITIONMAP, TB_POSITIONMAP);
-
-#if defined(_DEBUG)
-		GLSL_FinishGPUShader(&tr.volumeLightInvertedShader[i]);
 #endif
 
 		numEtcShaders++;
@@ -5283,6 +5691,31 @@ void GLSL_EndLoadGPUShaders(int startTime)
 #endif //__PROCEDURALS_IN_DEFERRED_SHADER__
 
 	{
+		if (!GLSL_EndLoadGPUShader(&tr.fastLightingShader))
+		{
+			ri->Error(ERR_FATAL, "Could not load deferredLightingshader0!");
+		}
+
+		GLSL_InitUniforms(&tr.fastLightingShader);
+
+		GLSL_BindProgram(&tr.fastLightingShader);
+
+		GLSL_SetUniformInt(&tr.fastLightingShader, UNIFORM_DIFFUSEMAP, TB_DIFFUSEMAP);
+		GLSL_SetUniformInt(&tr.fastLightingShader, UNIFORM_POSITIONMAP, TB_POSITIONMAP);
+		GLSL_SetUniformInt(&tr.fastLightingShader, UNIFORM_NORMALMAP, TB_NORMALMAP);
+		GLSL_SetUniformInt(&tr.fastLightingShader, UNIFORM_SHADOWMAP, TB_SHADOWMAP);
+		GLSL_SetUniformInt(&tr.fastLightingShader, UNIFORM_SCREENDEPTHMAP, TB_LIGHTMAP);
+		GLSL_SetUniformInt(&tr.fastLightingShader, UNIFORM_CUBEMAP, TB_CUBEMAP);
+		GLSL_SetUniformInt(&tr.fastLightingShader, UNIFORM_HEIGHTMAP, TB_HEIGHTMAP);
+
+#if defined(_DEBUG)
+		GLSL_FinishGPUShader(&tr.fastLightingShader);
+#endif
+
+		numEtcShaders++;
+	}
+
+	{
 		if (!GLSL_EndLoadGPUShader(&tr.deferredLightingShader[0]))
 		{
 			ri->Error(ERR_FATAL, "Could not load deferredLightingshader0!");
@@ -5546,21 +5979,35 @@ void GLSL_EndLoadGPUShaders(int startTime)
 
 	GLSL_BindProgram(&tr.fastBlurShader);
 
-	GLSL_SetUniformInt(&tr.fastBlurShader, UNIFORM_LEVELSMAP, TB_LEVELSMAP);
-
-	{
-		vec2_t screensize;
-		screensize[0] = glConfig.vidWidth * r_superSampleMultiplier->value;
-		screensize[1] = glConfig.vidHeight * r_superSampleMultiplier->value;
-
-		GLSL_SetUniformVec2(&tr.fastBlurShader, UNIFORM_DIMENSIONS, screensize);
-	}
+	GLSL_SetUniformInt(&tr.fastBlurShader, UNIFORM_DIFFUSEMAP, TB_DIFFUSEMAP);
+	GLSL_SetUniformInt(&tr.fastBlurShader, UNIFORM_SCREENDEPTHMAP, TB_HEIGHTMAP);
 
 #if defined(_DEBUG)
 	GLSL_FinishGPUShader(&tr.fastBlurShader);
 #endif
 
 	numEtcShaders++;
+
+
+	/*
+	if (!GLSL_EndLoadGPUShader(&tr.shadowBlurShader))
+	{
+		ri->Error(ERR_FATAL, "Could not load shadowBlur shader!");
+	}
+
+	GLSL_InitUniforms(&tr.shadowBlurShader);
+
+	GLSL_BindProgram(&tr.shadowBlurShader);
+
+	GLSL_SetUniformInt(&tr.shadowBlurShader, UNIFORM_SHADOWMAP, TB_SHADOWMAP);
+
+#if defined(_DEBUG)
+	GLSL_FinishGPUShader(&tr.shadowBlurShader);
+#endif
+
+	numEtcShaders++;
+	*/
+
 
 
 	if (!GLSL_EndLoadGPUShader(&tr.bloomRaysShader))
@@ -5572,16 +6019,8 @@ void GLSL_EndLoadGPUShaders(int startTime)
 
 	GLSL_BindProgram(&tr.bloomRaysShader);
 
-	GLSL_SetUniformInt(&tr.bloomRaysShader, UNIFORM_LEVELSMAP, TB_LEVELSMAP);
+	GLSL_SetUniformInt(&tr.bloomRaysShader, UNIFORM_DIFFUSEMAP, TB_DIFFUSEMAP);
 	GLSL_SetUniformInt(&tr.bloomRaysShader, UNIFORM_GLOWMAP, TB_GLOWMAP);
-
-	{
-		vec2_t screensize;
-		screensize[0] = glConfig.vidWidth * r_superSampleMultiplier->value;
-		screensize[1] = glConfig.vidHeight * r_superSampleMultiplier->value;
-
-		GLSL_SetUniformVec2(&tr.bloomRaysShader, UNIFORM_DIMENSIONS, screensize);
-	}
 
 #if defined(_DEBUG)
 	GLSL_FinishGPUShader(&tr.bloomRaysShader);
@@ -5602,14 +6041,6 @@ void GLSL_EndLoadGPUShaders(int startTime)
 
 	GLSL_SetUniformInt(&tr.dofFocusDepthShader, UNIFORM_SCREENDEPTHMAP, TB_LIGHTMAP);
 
-	{
-		vec2_t screensize;
-		screensize[0] = glConfig.vidWidth * r_superSampleMultiplier->value;
-		screensize[1] = glConfig.vidHeight * r_superSampleMultiplier->value;
-
-		GLSL_SetUniformVec2(&tr.dofFocusDepthShader, UNIFORM_DIMENSIONS, screensize);
-	}
-
 #if defined(_DEBUG)
 	GLSL_FinishGPUShader(&tr.dofFocusDepthShader);
 #endif
@@ -5618,6 +6049,7 @@ void GLSL_EndLoadGPUShaders(int startTime)
 
 
 
+	/*
 	for (i = 0; i < 4; i++)
 	{
 		if (!GLSL_EndLoadGPUShader(&tr.distanceBlurShader[i]))
@@ -5676,6 +6108,7 @@ void GLSL_EndLoadGPUShaders(int startTime)
 
 		numEtcShaders++;
 	}
+	*/
 
 
 	//esharpeningShader
@@ -5764,7 +6197,7 @@ void GLSL_EndLoadGPUShaders(int startTime)
 	*/
 
 
-	//fxaaShader
+	
 	if (!GLSL_EndLoadGPUShader(&tr.fxaaShader))
 	{
 		ri->Error(ERR_FATAL, "Could not load fxaa shader!");
@@ -5804,7 +6237,7 @@ void GLSL_EndLoadGPUShaders(int startTime)
 #endif
 
 	numEtcShaders++;
-
+	
 
 
 	if (!GLSL_EndLoadGPUShader(&tr.txaaShader))
@@ -6231,8 +6664,8 @@ void GLSL_EndLoadGPUShaders(int startTime)
 
 	GLSL_BindProgram(NULL);
 
-	ri->Printf(PRINT_ALL, "loaded %i GLSL shaders (%i gen %i light %i etc) in %5.2f seconds\n",
-		numGenShaders + numLightShaders + numEtcShaders, numGenShaders, numLightShaders,
+	ri->Printf(PRINT_ALL, "loaded %i GLSL shaders (%i light %i etc) in %5.2f seconds\n",
+		numLightShaders + numEtcShaders, numLightShaders,
 		numEtcShaders, (ri->Milliseconds() - startTime) / 1000.0);
 }
 
@@ -6280,9 +6713,9 @@ void GLSL_ShutdownGPUShaders(void)
 	GLSL_DeleteGPUShader(&tr.depthPassShader[2]);
 	GLSL_DeleteGPUShader(&tr.depthPassShader[3]);
 
-	GLSL_DeleteGPUShader(&tr.sunPassShader);
-	GLSL_DeleteGPUShader(&tr.moonPassShader);
-	GLSL_DeleteGPUShader(&tr.planetPassShader);
+	//GLSL_DeleteGPUShader(&tr.sunPassShader);
+	//GLSL_DeleteGPUShader(&tr.moonPassShader);
+	//GLSL_DeleteGPUShader(&tr.planetPassShader);
 
 	GLSL_DeleteGPUShader(&tr.fireShader);
 	GLSL_DeleteGPUShader(&tr.smokeShader);
@@ -6292,10 +6725,10 @@ void GLSL_ShutdownGPUShaders(void)
 	GLSL_DeleteGPUShader(&tr.portalShader);
 	GLSL_DeleteGPUShader(&tr.menuBackgroundShader);
 
-	GLSL_DeleteGPUShader(&tr.shadowmapShader[0]);
-	GLSL_DeleteGPUShader(&tr.shadowmapShader[1]);
-	GLSL_DeleteGPUShader(&tr.shadowmapShader[2]);
-	GLSL_DeleteGPUShader(&tr.shadowmapShader[3]);
+	GLSL_DeleteGPUShader(&tr.shadowFillShader[0]);
+	GLSL_DeleteGPUShader(&tr.shadowFillShader[1]);
+	GLSL_DeleteGPUShader(&tr.shadowFillShader[2]);
+	GLSL_DeleteGPUShader(&tr.shadowFillShader[3]);
 
 	GLSL_DeleteGPUShader(&tr.pshadowShader[0]);
 #ifdef __PSHADOW_TESSELLATION__
@@ -6303,7 +6736,7 @@ void GLSL_ShutdownGPUShaders(void)
 	GLSL_DeleteGPUShader(&tr.pshadowShader[2]);
 	GLSL_DeleteGPUShader(&tr.pshadowShader[3]);
 #endif //__PSHADOW_TESSELLATION__
-	GLSL_DeleteGPUShader(&tr.down4xShader);
+	//GLSL_DeleteGPUShader(&tr.down4xShader);
 	GLSL_DeleteGPUShader(&tr.bokehShader);
 	GLSL_DeleteGPUShader(&tr.tonemapShader);
 
@@ -6322,10 +6755,10 @@ void GLSL_ShutdownGPUShaders(void)
 	GLSL_DeleteGPUShader(&tr.surfaceSpriteShader);
 #endif //__XYC_SURFACE_SPRITES__
 
+	/*
 	for (i = 0; i < 2; i++)
 		GLSL_DeleteGPUShader(&tr.depthBlurShader[i]);
-
-
+	*/
 
 	// UQ1: Added...
 	GLSL_DeleteGPUShader(&tr.linearizeDepthShader);
@@ -6348,8 +6781,8 @@ void GLSL_ShutdownGPUShaders(void)
 	GLSL_DeleteGPUShader(&tr.waterReflectionShader);
 	GLSL_DeleteGPUShader(&tr.transparancyPostShader);
 	GLSL_DeleteGPUShader(&tr.cloudsShader);
-	GLSL_DeleteGPUShader(&tr.furShader);
 	GLSL_DeleteGPUShader(&tr.foliageShader);
+	GLSL_DeleteGPUShader(&tr.grassPatchesShader);
 	if (r_foliage->integer)	GLSL_DeleteGPUShader(&tr.grassShader[0]);
 	if (r_foliage->integer)	GLSL_DeleteGPUShader(&tr.grassShader[1]);
 	GLSL_DeleteGPUShader(&tr.vinesShader);
@@ -6372,21 +6805,20 @@ void GLSL_ShutdownGPUShaders(void)
 	GLSL_DeleteGPUShader(&tr.volumeLightShader[0]);
 	GLSL_DeleteGPUShader(&tr.volumeLightShader[1]);
 	GLSL_DeleteGPUShader(&tr.volumeLightShader[2]);
-	GLSL_DeleteGPUShader(&tr.volumeLightInvertedShader[0]);
-	GLSL_DeleteGPUShader(&tr.volumeLightInvertedShader[1]);
-	GLSL_DeleteGPUShader(&tr.volumeLightInvertedShader[2]);
 	GLSL_DeleteGPUShader(&tr.volumeLightCombineShader);
 	GLSL_DeleteGPUShader(&tr.fastBlurShader);
+	//GLSL_DeleteGPUShader(&tr.shadowBlurShader);
 	GLSL_DeleteGPUShader(&tr.bloomRaysShader);
-	GLSL_DeleteGPUShader(&tr.distanceBlurShader[0]);
+	/*GLSL_DeleteGPUShader(&tr.distanceBlurShader[0]);
 	GLSL_DeleteGPUShader(&tr.distanceBlurShader[1]);
 	GLSL_DeleteGPUShader(&tr.distanceBlurShader[2]);
-	GLSL_DeleteGPUShader(&tr.distanceBlurShader[3]);
+	GLSL_DeleteGPUShader(&tr.distanceBlurShader[3]);*/
 	GLSL_DeleteGPUShader(&tr.dofFocusDepthShader);
 	GLSL_DeleteGPUShader(&tr.fogPostShader);
 	GLSL_DeleteGPUShader(&tr.colorCorrectionShader);
 	GLSL_DeleteGPUShader(&tr.showNormalsShader);
 	GLSL_DeleteGPUShader(&tr.showDepthShader);
+	GLSL_DeleteGPUShader(&tr.fastLightingShader);
 	GLSL_DeleteGPUShader(&tr.deferredLightingShader[0]);
 	GLSL_DeleteGPUShader(&tr.deferredLightingShader[1]);
 	GLSL_DeleteGPUShader(&tr.deferredLightingShader[2]);
@@ -6421,12 +6853,12 @@ void GLSL_BindProgram(shaderProgram_t * program)
 			char to[256] = { 0 };
 
 			if (glState.currentProgram)
-				strcpy(from, glState.currentProgram->name);
+				strcpy(from, glState.currentProgram->name.c_str());
 			else
 				strcpy(from, "NULL");
 
 			if (program)
-				strcpy(to, program->name);
+				strcpy(to, program->name.c_str());
 			else
 				strcpy(to, "NULL");
 
