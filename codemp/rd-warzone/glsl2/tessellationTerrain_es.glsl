@@ -1,31 +1,75 @@
+#if defined(USE_BINDLESS_TEXTURES)
+layout(std140) uniform u_bindlessTexturesBlock
+{
+uniform sampler2D					u_DiffuseMap;
+uniform sampler2D					u_LightMap;
+uniform sampler2D					u_NormalMap;
+uniform sampler2D					u_DeluxeMap;
+uniform sampler2D					u_SpecularMap;
+uniform sampler2D					u_PositionMap;
+uniform sampler2D					u_WaterPositionMap;
+uniform sampler2D					u_WaterHeightMap;
+uniform sampler2D					u_HeightMap;
+uniform sampler2D					u_GlowMap;
+uniform sampler2D					u_EnvironmentMap;
+uniform sampler2D					u_TextureMap;
+uniform sampler2D					u_LevelsMap;
+uniform sampler2D					u_CubeMap;
+uniform sampler2D					u_SkyCubeMap;
+uniform sampler2D					u_SkyCubeMapNight;
+uniform sampler2D					u_EmissiveCubeMap;
+uniform sampler2D					u_OverlayMap;
+uniform sampler2D					u_SteepMap;
+uniform sampler2D					u_SteepMap1;
+uniform sampler2D					u_SteepMap2;
+uniform sampler2D					u_SteepMap3;
+uniform sampler2D					u_WaterEdgeMap;
+uniform sampler2D					u_SplatControlMap;
+uniform sampler2D					u_SplatMap1;
+uniform sampler2D					u_SplatMap2;
+uniform sampler2D					u_SplatMap3;
+uniform sampler2D					u_RoadsControlMap;
+uniform sampler2D					u_RoadMap;
+uniform sampler2D					u_DetailMap;
+uniform sampler2D					u_ScreenImageMap;
+uniform sampler2D					u_ScreenDepthMap;
+uniform sampler2D					u_ShadowMap;
+uniform sampler2D					u_ShadowMap2;
+uniform sampler2D					u_ShadowMap3;
+uniform sampler2D					u_ShadowMap4;
+uniform sampler2D					u_ShadowMap5;
+uniform sampler2D					u_MoonMaps[4];
+};
+#else //!defined(USE_BINDLESS_TEXTURES)
 uniform sampler2D					u_RoadsControlMap;
 uniform sampler2D					u_HeightMap;
+#endif //defined(USE_BINDLESS_TEXTURES)
 
-uniform mat4	u_ModelViewProjectionMatrix;
-uniform mat4	u_ModelMatrix;
+uniform mat4						u_ModelViewProjectionMatrix;
+uniform mat4						u_ModelMatrix;
 
-uniform vec4				u_Settings0; // useTC, useDeform, useRGBA, isTextureClamped
-uniform vec4				u_Settings1; // useVertexAnim, useSkeletalAnim, useFog, is2D
-uniform vec4				u_Settings2; // LIGHTDEF_USE_LIGHTMAP, LIGHTDEF_USE_GLOW_BUFFER, LIGHTDEF_USE_CUBEMAP, LIGHTDEF_USE_TRIPLANAR
-uniform vec4				u_Settings3; // LIGHTDEF_USE_REGIONS, LIGHTDEF_IS_DETAIL
+uniform vec4						u_Settings0; // useTC, useDeform, useRGBA, isTextureClamped
+uniform vec4						u_Settings1; // useVertexAnim, useSkeletalAnim, useFog, is2D
+uniform vec4						u_Settings2; // LIGHTDEF_USE_LIGHTMAP, LIGHTDEF_USE_GLOW_BUFFER, LIGHTDEF_USE_CUBEMAP, LIGHTDEF_USE_TRIPLANAR
+uniform vec4						u_Settings3; // LIGHTDEF_USE_REGIONS, LIGHTDEF_IS_DETAIL
 
-#define USE_TC				u_Settings0.r
-#define USE_DEFORM			u_Settings0.g
-#define USE_RGBA			u_Settings0.b
-#define USE_TEXTURECLAMP	u_Settings0.a
+#define USE_TC						u_Settings0.r
+#define USE_DEFORM					u_Settings0.g
+#define USE_RGBA					u_Settings0.b
+#define USE_TEXTURECLAMP			u_Settings0.a
 
-#define USE_VERTEX_ANIM		u_Settings1.r
-#define USE_SKELETAL_ANIM	u_Settings1.g
-#define USE_FOG				u_Settings1.b
-#define USE_IS2D			u_Settings1.a
+#define USE_VERTEX_ANIM				u_Settings1.r
+#define USE_SKELETAL_ANIM			u_Settings1.g
+#define USE_FOG						u_Settings1.b
+#define USE_IS2D					u_Settings1.a
 
-#define USE_LIGHTMAP		u_Settings2.r
-#define USE_GLOW_BUFFER		u_Settings2.g
-#define USE_CUBEMAP			u_Settings2.b
-#define USE_TRIPLANAR		u_Settings2.a
+#define USE_LIGHTMAP				u_Settings2.r
+#define USE_GLOW_BUFFER				u_Settings2.g
+#define USE_CUBEMAP					u_Settings2.b
+#define USE_TRIPLANAR				u_Settings2.a
 
-#define USE_REGIONS			u_Settings3.r
-#define USE_ISDETAIL		u_Settings3.g
+#define USE_REGIONS					u_Settings3.r
+#define USE_ISDETAIL				u_Settings3.g
 
 uniform vec4						u_Local1; // MAP_SIZE, sway, overlaySway, materialType
 uniform vec4						u_Local2; // hasSteepMap, hasWaterEdgeMap, haveNormalMap, SHADER_WATER_LEVEL
@@ -52,6 +96,7 @@ out precise vec4 PrimaryLightDir_FS_in;
 out precise vec2 TexCoord2_FS_in;
 out precise vec3 Blending_FS_in;
 /*flat*/ out float Slope_FS_in;
+/*flat*/ out float GrassSlope_FS_in;
 out float TessDepth_FS_in;
 
 #define WorldPos_GS_in WorldPos_FS_in
@@ -63,6 +108,7 @@ out float TessDepth_FS_in;
 #define TexCoord2_GS_in TexCoord2_FS_in
 #define Blending_GS_in Blending_FS_in
 #define Slope_GS_in Slope_FS_in
+#define GrassSlope_GS_in GrassSlope_FS_in
 
 uniform vec4 u_TesselationInfo;
 
@@ -85,6 +131,7 @@ in precise vec4 PrimaryLightDir_ES_in[];
 in precise vec2 TexCoord2_ES_in[];
 in precise vec3 Blending_ES_in[];
 in float Slope_ES_in[];
+in float GrassSlope_ES_in[];
 
 #define HASHSCALE1 .1031
 
@@ -200,6 +247,7 @@ void main()
 		+ gl_TessCoord[0] * Slope_ES_in[1]
 		+ gl_TessCoord[1] * Slope_ES_in[2];*/
 	Slope_GS_in = Slope_ES_in[0];
+	GrassSlope_GS_in = GrassSlope_ES_in[0];
 
 	TessDepth_FS_in = OffsetForPosition(WorldPos_GS_in);
 	WorldPos_GS_in.z += TessDepth_FS_in;

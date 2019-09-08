@@ -1,4 +1,5 @@
 #define THREE_WAY_GRASS_CLUMPS // 3 way probably gives better coverage, at extra cost... otherwise 2 way X shape... 
+//#define FAKE_LOD
 
 #define MAX_FOLIAGES					85
 
@@ -6,15 +7,62 @@ layout(triangles) in;
 //layout(triangles, invocations = 8) in;
 layout(triangle_strip, max_vertices = MAX_FOLIAGES) out;
 
-
-uniform mat4								u_ModelViewProjectionMatrix;
-
+#if defined(USE_BINDLESS_TEXTURES)
+layout(std140) uniform u_bindlessTexturesBlock
+{
+uniform sampler2D					u_DiffuseMap;
+uniform sampler2D					u_LightMap;
+uniform sampler2D					u_NormalMap;
+uniform sampler2D					u_DeluxeMap;
+uniform sampler2D					u_SpecularMap;
+uniform sampler2D					u_PositionMap;
+uniform sampler2D					u_WaterPositionMap;
+uniform sampler2D					u_WaterHeightMap;
+uniform sampler2D					u_HeightMap;
+uniform sampler2D					u_GlowMap;
+uniform sampler2D					u_EnvironmentMap;
+uniform sampler2D					u_TextureMap;
+uniform sampler2D					u_LevelsMap;
+uniform sampler2D					u_CubeMap;
+uniform sampler2D					u_SkyCubeMap;
+uniform sampler2D					u_SkyCubeMapNight;
+uniform sampler2D					u_EmissiveCubeMap;
+uniform sampler2D					u_OverlayMap;
+uniform sampler2D					u_SteepMap;
+uniform sampler2D					u_SteepMap1;
+uniform sampler2D					u_SteepMap2;
+uniform sampler2D					u_SteepMap3;
+uniform sampler2D					u_WaterEdgeMap;
+uniform sampler2D					u_SplatControlMap;
+uniform sampler2D					u_SplatMap1;
+uniform sampler2D					u_SplatMap2;
+uniform sampler2D					u_SplatMap3;
+uniform sampler2D					u_RoadsControlMap;
+uniform sampler2D					u_RoadMap;
+uniform sampler2D					u_DetailMap;
+uniform sampler2D					u_ScreenImageMap;
+uniform sampler2D					u_ScreenDepthMap;
+uniform sampler2D					u_ShadowMap;
+uniform sampler2D					u_ShadowMap2;
+uniform sampler2D					u_ShadowMap3;
+uniform sampler2D					u_ShadowMap4;
+uniform sampler2D					u_ShadowMap5;
+uniform sampler2D					u_MoonMaps[4];
+};
+#else //!defined(USE_BINDLESS_TEXTURES)
 uniform sampler2D							u_RoadsControlMap;
 uniform sampler2D							u_SteepMap; // Grass control map...
 uniform sampler2D							u_SteepMap1; // Map of another grass...
 uniform sampler2D							u_SteepMap2; // Map of another grass...
 uniform sampler2D							u_SteepMap3; // Map of another grass...
 uniform sampler2D							u_HeightMap;
+#endif //defined(USE_BINDLESS_TEXTURES)
+
+uniform mat4								u_ModelViewProjectionMatrix;
+
+uniform vec4								u_Settings1; // IS_DEPTH_PASS, 0.0, 0.0, LEAF_ALPHA_MULTIPLIER
+
+#define IS_DEPTH_PASS						u_Settings1.r
 
 uniform vec4								u_Local1; // MAP_SIZE, sway, overlaySway, materialType
 uniform vec4								u_Local2; // hasSteepMap, hasWaterEdgeMap, haveNormalMap, SHADER_WATER_LEVEL
@@ -397,6 +445,8 @@ bool CheckGrassMapPosition(vec3 pos)
 
 void main()
 {
+	bool fakeLOD = false;
+
 	iGrassType = 0;
 
 	//
@@ -427,31 +477,47 @@ void main()
 
 	float VertDist2 = distance(u_ViewOrigin, vGrassFieldPos);
 
-	if (VertDist2 >= MAX_RANGE)
+	float CULL_RANGE = MAX_RANGE;
+
+	if (vGrassFieldPos.z < MAP_WATER_LEVEL)
+	{
+		CULL_RANGE = MAX_RANGE * 1.0/*2.0*/;
+	}
+
+
+	if (VertDist2 >= CULL_RANGE)
 	{// Too far from viewer... Cull...
+#ifdef FAKE_LOD
+		fakeLOD = true;
+#else //!FAKE_LOD
 		return;
+#endif //FAKE_LOD
 	}
 
 	float heightAboveWater = vGrassFieldPos.z - MAP_WATER_LEVEL;
 	float heightAboveWaterLength = length(heightAboveWater);
 
-	if (heightAboveWaterLength <= 128.0)
+	if (heightAboveWaterLength <= 256.0/*192.0*//*128.0*/)
 	{// Too close to water edge...
 		return;
 	}
 
 	float vertDistanceScale = 1.0;
-	float falloffStart = MAX_RANGE / 1.5;
+	float falloffStart = CULL_RANGE / 1.5;
 
 	if (VertDist2 >= falloffStart)
 	{
-		float falloffEnd = MAX_RANGE - falloffStart;
+		float falloffEnd = CULL_RANGE - falloffStart;
 		float pDist = clamp((VertDist2 - falloffStart) / falloffEnd, 0.0, 1.0);
 		vertDistanceScale = 1.0 - pDist; // Scale down to zero size by distance...
 
 		if (vertDistanceScale <= 0.05)
 		{
+#ifdef FAKE_LOD
+			fakeLOD = true;
+#else //!FAKE_LOD
 			return;
+#endif //FAKE_LOD
 		}
 	}
 
@@ -472,6 +538,52 @@ void main()
 			return;
 		}
 	}
+
+#ifdef FAKE_LOD
+	if (VertDist2 >= CULL_RANGE * 0.5)
+	{// Fake grasses in the distance... Flat...
+		if (fakeLOD && IS_DEPTH_PASS > 0.0)
+		{// Don't draw anything for these lods...
+			return;
+		}
+
+		if (heightAboveWater < 0.0)
+		{
+			// Final value set to 3 == an underwater grass lod...
+			iGrassType = 3;
+		}
+		else
+		{
+			// Final value set to 2 == an abovewater grass lod...
+			iGrassType = 2;
+		}
+
+		//vec3 baseNorm = normalize(cross(normalize(Vert2 - Vert1), normalize(Vert3 - Vert1)));
+		vVertNormal = vec2(0.0);//EncodeNormal(baseNorm);
+
+		vVertPosition = Vert1;
+		gl_Position = u_ModelViewProjectionMatrix * vec4(vVertPosition, 1.0);
+		vTexCoord = vec2(0.0);
+		EmitVertex();
+
+		vVertPosition = Vert2;
+		gl_Position = u_ModelViewProjectionMatrix * vec4(vVertPosition, 1.0);
+		vTexCoord = vec2(0.0);
+		EmitVertex();
+
+		vVertPosition = Vert3;
+		gl_Position = u_ModelViewProjectionMatrix * vec4(vVertPosition, 1.0);
+		vTexCoord = vec2(0.0);
+		EmitVertex();
+
+		EndPrimitive();
+
+		if (fakeLOD)
+		{
+			return;
+		}
+	}
+#endif //FAKE_LOD
 
 	int lodLevel = 0;
 
@@ -514,14 +626,14 @@ void main()
 		iGrassType = randomInt(0, 3);
 	}
 
-	if (heightAboveWaterLength <= 192.0)
+	/*if (heightAboveWaterLength <= 192.0)
 	{// When near water edge, reduce the size of the grass...
 		sizeMult *= clamp(heightAboveWaterLength / 192.0, 0.0, 1.0) * fSizeRandomness;
 	}
 	else
 	{// Deep underwater plants draw larger...
 		sizeMult *= clamp(1.0 + (heightAboveWaterLength / 192.0), 1.0, 16.0);
-	}
+	}*/
 
 	sizeMult *= GRASS_SIZE_MULTIPLIER_UNDERWATER;
 
@@ -541,14 +653,14 @@ void main()
 			iGrassType = randomInt(0, 3);
 		}
 
-		if (heightAboveWaterLength <= 192.0)
+		/*if (heightAboveWaterLength <= 192.0)
 		{// When near water edge, reduce the size of the grass...
 			sizeMult *= clamp(heightAboveWaterLength / 192.0, 0.0, 1.0) * fSizeRandomness;
 		}
 		else
 		{// Deep underwater plants draw larger...
 			sizeMult *= clamp(1.0 + (heightAboveWaterLength / 192.0), 1.0, 16.0);
-		}
+		}*/
 
 		sizeMult *= GRASS_SIZE_MULTIPLIER_UNDERWATER;
 
@@ -596,7 +708,7 @@ void main()
 	}
 #endif //defined(__USE_UNDERWATER_ONLY__)
 
-	fGrassPatchHeight = clamp(controlMapScale * vertDistanceScale * 3.0, 0.0, 1.0);
+	fGrassPatchHeight = clamp(controlMapScale /** vertDistanceScale*/ * 3.0, 0.0, 1.0);
 
 	if (fGrassPatchHeight <= 0.05)
 	{
@@ -615,13 +727,17 @@ void main()
 	float fWindPower = inWindPower[gl_InvocationID];
 	float randDir = sin(randZeroOne()*0.7f)*0.1f;
 
+	vec3 P = vGrassFieldPos.xyz;
+	vec3 I = normalize(vec3(normalize(P.xyz - u_ViewOrigin.xyz).xy, 0.0));
+
+
 #ifdef THREE_WAY_GRASS_CLUMPS
 	for (int i = 0; i < 3; i++)
 #else //!THREE_WAY_GRASS_CLUMPS
 	for (int i = 0; i < 2; i++)
 #endif //THREE_WAY_GRASS_CLUMPS
 	{// Draw either 2 or 3 copies at each position at different angles...
-		if (lodLevel == 3 && i > 0) continue;
+		if (lodLevel == 3 && i > /*0*/1) continue;
 		if (lodLevel == 2 && i > 1) continue;
 		if (lodLevel == 1 && i > 2) continue;
 
@@ -629,7 +745,7 @@ void main()
 		
 		if (GRASS_WIDTH_REPEATS > 0.0) direction.xy *= GRASS_WIDTH_REPEATS;
 
-		vec3 P = vGrassFieldPos.xyz;
+		//vec3 P = vGrassFieldPos.xyz;
 
 		vec3 va = P - (direction * fGrassFinalSize);
 		vec3 vb = P + (direction * fGrassFinalSize);
@@ -637,17 +753,10 @@ void main()
 		vec3 vd = vb + vec3(0.0, 0.0, fGrassFinalSize * fGrassPatchHeight);
 
 		
-		//vec3 baseNorm = normalize(cross(normalize(va - P), normalize(vb - P)));
 		vec3 baseNorm = normalize(cross(normalize(vb - va), normalize(vc - va)));
-		//vec3 I = normalize(P.xyz - u_ViewOrigin.xyz);
-		vec3 I = normalize(vec3(normalize(P.xyz - u_ViewOrigin.xyz).xy, 0.0));
-		//vec3 I = normalize(vec3(normalize(P.xyz).xy, 0.0));
+		//vec3 I = normalize(vec3(normalize(P.xyz - u_ViewOrigin.xyz).xy, 0.0));
 		vec3 Nf = normalize(faceforward(baseNorm, I, baseNorm));
 		
-		
-		//vec3 baseNorm = vec3(0.0, 0.0, 1.0);//-normalize(cross(normalize(-(direction * fGrassFinalSize) - (direction * fGrassFinalSize)), normalize(-vec3(0.0, 0.0, fGrassFinalSize * fGrassPatchHeight) - (direction * fGrassFinalSize))));
-		//vec3 Nf = baseNorm;
-
 		vVertNormal = EncodeNormal(Nf);
 
 #ifndef __HUMANOIDS_BEND_GRASS__ // Just the player...

@@ -155,8 +155,6 @@ cvar_t  *r_cacheVisibleSurfaces;
 cvar_t  *r_mergeMultidraws;
 cvar_t  *r_mergeLeafSurfaces;
 
-cvar_t  *r_cameraExposure;
-
 cvar_t  *r_hdr;
 cvar_t  *r_floatLightmap;
 cvar_t  *r_postProcess;
@@ -167,7 +165,6 @@ cvar_t  *r_forceToneMapMin;
 cvar_t  *r_forceToneMapAvg;
 cvar_t  *r_forceToneMapMax;
 
-cvar_t  *r_autoExposure;
 cvar_t  *r_forceAutoExposure;
 cvar_t  *r_forceAutoExposureMin;
 cvar_t  *r_forceAutoExposureMax;
@@ -214,6 +211,10 @@ cvar_t  *r_proceduralSun;
 cvar_t  *r_proceduralSunScale;
 cvar_t  *r_glowStrength;
 cvar_t  *r_glowVibrancy;
+cvar_t	*r_glowMultiplierR;
+cvar_t	*r_glowMultiplierG;
+cvar_t	*r_glowMultiplierB;
+cvar_t	*r_glowMultiplierA;
 cvar_t  *r_sunlightMode;
 cvar_t  *r_sunlightSpecular;
 cvar_t  *r_drawSunRays;
@@ -377,7 +378,7 @@ cvar_t  *r_multipost;
 cvar_t  *r_screenBlurSlow;
 cvar_t  *r_screenBlurFast;
 //cvar_t  *r_hbao;
-cvar_t  *r_colorCorrection;
+cvar_t  *r_fastLighting;
 cvar_t  *r_deferredLighting;
 cvar_t  *r_ssdm;
 //cvar_t  *r_ssr;
@@ -394,7 +395,6 @@ cvar_t  *r_trueAnaglyphPower;
 cvar_t  *r_trueAnaglyphMinDistance;
 cvar_t  *r_trueAnaglyphMaxDistance;
 cvar_t  *r_trueAnaglyphParallax;
-cvar_t  *r_vibrancy;
 cvar_t  *r_fxaa;
 cvar_t  *r_fxaaScanMod;
 cvar_t  *r_txaa;
@@ -534,7 +534,7 @@ static void InitOpenGL( void )
 	//		- r_gamma
 	//
 
-	if ( glConfig.vidWidth * r_superSampleMultiplier->value == 0 )
+	if ( glConfig.vidWidth == 0 )
 	{
 		GLint		temp;
 
@@ -1539,12 +1539,9 @@ void R_Register( void )
 	r_forceToneMapAvg = ri->Cvar_Get( "r_forceToneMapAvg", "-2.0", CVAR_CHEAT );
 	r_forceToneMapMax = ri->Cvar_Get( "r_forceToneMapMax", "0.0", CVAR_CHEAT );
 
-	r_autoExposure = ri->Cvar_Get( "r_autoExposure", "0", CVAR_ARCHIVE ); // UQ1: Disabled. Pointless.
 	r_forceAutoExposure = ri->Cvar_Get( "r_forceAutoExposure", "0", CVAR_CHEAT );
 	r_forceAutoExposureMin = ri->Cvar_Get( "r_forceAutoExposureMin", "-2.0", CVAR_CHEAT );
 	r_forceAutoExposureMax = ri->Cvar_Get( "r_forceAutoExposureMax", "2.0", CVAR_CHEAT );
-
-	r_cameraExposure = ri->Cvar_Get( "r_cameraExposure", "0", CVAR_CHEAT );
 
 	r_srgb = ri->Cvar_Get( "r_srgb", "0", CVAR_ARCHIVE | CVAR_LATCH );
 
@@ -1563,8 +1560,8 @@ void R_Register( void )
 	r_specularMapping = ri->Cvar_Get( "r_specularMapping", "0", CVAR_ARCHIVE | CVAR_LATCH );
 	r_deluxeMapping = ri->Cvar_Get( "r_deluxeMapping", "0", CVAR_ARCHIVE | CVAR_LATCH );
 	r_cubeMapping = ri->Cvar_Get( "r_cubeMapping", "0", CVAR_ARCHIVE | CVAR_LATCH );
-	r_cubeMapSize = ri->Cvar_Get( "r_cubeMapSize", "64", CVAR_ARCHIVE | CVAR_LATCH );
-	r_cubemapCullRange = ri->Cvar_Get("r_cubemapCullRange", "384.0", CVAR_ARCHIVE);
+	r_cubeMapSize = ri->Cvar_Get( "r_cubeMapSize", "512", CVAR_ARCHIVE | CVAR_LATCH );
+	r_cubemapCullRange = ri->Cvar_Get("r_cubemapCullRange", "512.0", CVAR_ARCHIVE);
 	r_cubemapStrength = ri->Cvar_Get("r_cubemapStrength", "1.25", CVAR_ARCHIVE);
    	r_deluxeSpecular = ri->Cvar_Get( "r_deluxeSpecular", "0.3", CVAR_ARCHIVE );
    	r_specularIsMetallic = ri->Cvar_Get( "r_specularIsMetallic", "0", CVAR_ARCHIVE | CVAR_LATCH );
@@ -1584,6 +1581,10 @@ void R_Register( void )
 
 	r_glowStrength = ri->Cvar_Get("r_glowStrength", "1.0", CVAR_ARCHIVE);
 	r_glowVibrancy = ri->Cvar_Get("r_glowVibrancy", "1.0", CVAR_ARCHIVE);
+	r_glowMultiplierR = ri->Cvar_Get("r_glowMultiplierR", "1.0", CVAR_NONE);
+	r_glowMultiplierG = ri->Cvar_Get("r_glowMultiplierG", "1.0", CVAR_NONE);
+	r_glowMultiplierB = ri->Cvar_Get("r_glowMultiplierB", "1.0", CVAR_NONE);
+	r_glowMultiplierA = ri->Cvar_Get("r_glowMultiplierA", "1.0", CVAR_NONE);
 
 	r_dlightShadows = ri->Cvar_Get( "r_dlightShadows", "0", CVAR_ARCHIVE );
 	r_forceSun = ri->Cvar_Get( "r_forceSun", "0", CVAR_ARCHIVE | CVAR_LATCH );
@@ -1610,7 +1611,7 @@ void R_Register( void )
 	//
 	r_perf = ri->Cvar_Get("r_perf", "0", CVAR_NONE);
 
-	r_glslOptimize = ri->Cvar_Get("r_glslOptimize", "1", CVAR_ARCHIVE | CVAR_LATCH);
+	r_glslOptimize = ri->Cvar_Get("r_glslOptimize", "0", CVAR_ARCHIVE | CVAR_LATCH);
 	r_useLowP = ri->Cvar_Get("r_useLowP", "0", CVAR_ARCHIVE | CVAR_LATCH);
 	r_lowVram = ri->Cvar_Get("r_lowVram", "0", CVAR_ARCHIVE | CVAR_LATCH);
 	r_useStaticVBO = ri->Cvar_Get("r_useStaticVBO", "1", CVAR_ARCHIVE);
@@ -1691,22 +1692,22 @@ void R_Register( void )
 	r_testvalue3 = ri->Cvar_Get( "r_testvalue3", "4.0", CVAR_ARCHIVE );
 	r_esharpening = ri->Cvar_Get( "r_esharpening", "true", CVAR_ARCHIVE );
 	//r_esharpening2 = ri->Cvar_Get( "r_esharpening2", "false", CVAR_ARCHIVE );
-	r_fxaa = ri->Cvar_Get( "r_fxaa", "false", CVAR_ARCHIVE );
-	r_fxaaScanMod = ri->Cvar_Get("r_fxaaScanMod", "1.0"/*"0.666"*//*"2.0"*//*0.75*/, CVAR_ARCHIVE);
-	r_txaa = ri->Cvar_Get("r_txaa", "true", CVAR_ARCHIVE);
+	r_fxaa = ri->Cvar_Get( "r_fxaa", "true", CVAR_ARCHIVE );
+	r_fxaaScanMod = ri->Cvar_Get("r_fxaaScanMod", "1.0", CVAR_ARCHIVE);
+	r_txaa = ri->Cvar_Get("r_txaa", "false", CVAR_ARCHIVE);
 	r_cloudshadows = ri->Cvar_Get("r_cloudshadows", "1", CVAR_ARCHIVE);
 	r_underwater = ri->Cvar_Get( "r_underwater", "1", CVAR_ARCHIVE );
 	r_multipost = ri->Cvar_Get( "r_multipost", "false", CVAR_ARCHIVE );
 	r_screenBlurSlow = ri->Cvar_Get( "r_screenBlurSlow", "1", CVAR_ARCHIVE );
 	r_screenBlurFast = ri->Cvar_Get( "r_screenBlurFast", "0", CVAR_ARCHIVE );
 	//r_hbao = ri->Cvar_Get( "r_hbao", "false", CVAR_ARCHIVE );
+	r_fastLighting = ri->Cvar_Get("r_fastLighting", "false", CVAR_ARCHIVE);
 	r_deferredLighting = ri->Cvar_Get( "r_deferredLighting", "true", CVAR_ARCHIVE );
 	r_ssdm = ri->Cvar_Get("r_ssdm", "true", CVAR_ARCHIVE);
 	//r_ssr = ri->Cvar_Get("r_ssr", "false", CVAR_ARCHIVE);
 	//r_ssrStrength = ri->Cvar_Get("r_ssrStrength", "0.05", CVAR_ARCHIVE);
 	//r_sse = ri->Cvar_Get("r_sse", "false", CVAR_ARCHIVE);
 	//r_sseStrength = ri->Cvar_Get("r_sseStrength", "0.05", CVAR_ARCHIVE);
-	r_colorCorrection = ri->Cvar_Get( "r_colorCorrection", "false", CVAR_ARCHIVE );
 	r_trueAnaglyph = ri->Cvar_Get( "r_trueAnaglyph", "0", CVAR_ARCHIVE );
 	r_trueAnaglyphSeparation = ri->Cvar_Get( "r_trueAnaglyphSeparation", "10.0", CVAR_ARCHIVE );
 	r_trueAnaglyphRed = ri->Cvar_Get( "r_trueAnaglyphRed", "0.0", CVAR_ARCHIVE );
@@ -1716,7 +1717,6 @@ void R_Register( void )
 	r_trueAnaglyphMinDistance = ri->Cvar_Get( "r_trueAnaglyphMinDistance", "0.03", CVAR_ARCHIVE );
 	r_trueAnaglyphMaxDistance = ri->Cvar_Get( "r_trueAnaglyphMaxDistance", "1.0", CVAR_ARCHIVE );
 	r_trueAnaglyphParallax = ri->Cvar_Get( "r_trueAnaglyphParallax", "11.5", CVAR_ARCHIVE );
-	r_vibrancy = ri->Cvar_Get( "r_vibrancy", "0.4", CVAR_ARCHIVE );
 	r_distanceBlur = ri->Cvar_Get( "r_distanceBlur", "0", CVAR_ARCHIVE );
 	r_fogPost = ri->Cvar_Get( "r_fogPost", "true", CVAR_ARCHIVE );
 	r_dayNightCycleSpeed = ri->Cvar_Get( "r_dayNightCycleSpeed", "0.004", CVAR_ARCHIVE );
@@ -2038,12 +2038,12 @@ extern void R_InitWorldEffects(void);
 
 	RestoreGhoul2InfoArray();
 
-	extern void GUI_Init(void);
-	GUI_Init();
-
 	// print info
 	GfxInfo_f();
-	ri->Printf( PRINT_ALL, "^5----- ^7finished R_Init^5 -----\n" );
+	ri->Printf(PRINT_ALL, "^5----- ^7finished R_Init^5 -----\n");
+
+	extern void GUI_Init(void);
+	GUI_Init();
 }
 
 /*
@@ -2093,6 +2093,10 @@ void RE_Shutdown( qboolean destroyWindow, qboolean restarting ) {
 #ifdef __JKA_WEATHER__
 	R_ShutdownWorldEffects();
 #endif //__JKA_WEATHER__
+
+	extern void GUI_Shutdown(void);
+	GUI_Shutdown();
+
 	R_ShutdownFonts();
 
 	// shut down platform specific OpenGL stuff

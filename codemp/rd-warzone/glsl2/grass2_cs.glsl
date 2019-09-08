@@ -1,10 +1,56 @@
 layout(vertices = MAX_PATCH_VERTICES) out;
 //layout(vertices = 3) out; // (1)
 
+//#define FAKE_LOD
+
+#if defined(USE_BINDLESS_TEXTURES)
+layout(std140) uniform u_bindlessTexturesBlock
+{
+uniform sampler2D					u_DiffuseMap;
+uniform sampler2D					u_LightMap;
+uniform sampler2D					u_NormalMap;
+uniform sampler2D					u_DeluxeMap;
+uniform sampler2D					u_SpecularMap;
+uniform sampler2D					u_PositionMap;
+uniform sampler2D					u_WaterPositionMap;
+uniform sampler2D					u_WaterHeightMap;
+uniform sampler2D					u_HeightMap;
+uniform sampler2D					u_GlowMap;
+uniform sampler2D					u_EnvironmentMap;
+uniform sampler2D					u_TextureMap;
+uniform sampler2D					u_LevelsMap;
+uniform sampler2D					u_CubeMap;
+uniform sampler2D					u_SkyCubeMap;
+uniform sampler2D					u_SkyCubeMapNight;
+uniform sampler2D					u_EmissiveCubeMap;
+uniform sampler2D					u_OverlayMap;
+uniform sampler2D					u_SteepMap;
+uniform sampler2D					u_SteepMap1;
+uniform sampler2D					u_SteepMap2;
+uniform sampler2D					u_SteepMap3;
+uniform sampler2D					u_WaterEdgeMap;
+uniform sampler2D					u_SplatControlMap;
+uniform sampler2D					u_SplatMap1;
+uniform sampler2D					u_SplatMap2;
+uniform sampler2D					u_SplatMap3;
+uniform sampler2D					u_RoadsControlMap;
+uniform sampler2D					u_RoadMap;
+uniform sampler2D					u_DetailMap;
+uniform sampler2D					u_ScreenImageMap;
+uniform sampler2D					u_ScreenDepthMap;
+uniform sampler2D					u_ShadowMap;
+uniform sampler2D					u_ShadowMap2;
+uniform sampler2D					u_ShadowMap3;
+uniform sampler2D					u_ShadowMap4;
+uniform sampler2D					u_ShadowMap5;
+uniform sampler2D					u_MoonMaps[4];
+};
+#else //!defined(USE_BINDLESS_TEXTURES)
 uniform sampler2D							u_SteepMap; // Grass control map...
 uniform sampler2D							u_SteepMap1; // Map of another grass...
 uniform sampler2D							u_SteepMap2; // Map of another grass...
 uniform sampler2D							u_SteepMap3; // Map of another grass...
+#endif //defined(USE_BINDLESS_TEXTURES)
 
 flat in	int									vertIsSlope[];
 
@@ -101,7 +147,7 @@ void main()
 
 	if (vertIsSlope[0] > 0 || vertIsSlope[1] > 0 || vertIsSlope[2] > 0)
 	{
-		gl_TessLevelOuter[0] = gl_TessLevelOuter[1] = gl_TessLevelOuter[2] = gl_TessLevelInner[0] = 0.0;// 1.0;
+		gl_TessLevelOuter[0] = gl_TessLevelOuter[1] = gl_TessLevelOuter[2] = gl_TessLevelInner[0] = 0.0;
 		return;
 	}
 
@@ -115,7 +161,7 @@ void main()
 
 	if (Vert1.z >= waterCheckLevel && Vert2.z >= waterCheckLevel && Vert3.z >= waterCheckLevel)
 	{// Can skip this triangle completely...
-		gl_TessLevelOuter[0] = gl_TessLevelOuter[1] = gl_TessLevelOuter[2] = gl_TessLevelInner[0] = 0.0;// 1.0;
+		gl_TessLevelOuter[0] = gl_TessLevelOuter[1] = gl_TessLevelOuter[2] = gl_TessLevelInner[0] = 0.0;
 		return;
 	}
 #endif //__USE_UNDERWATER_ONLY__
@@ -125,39 +171,51 @@ void main()
 #ifdef __USE_UNDERWATER_ONLY__
 	if (Pos.z >= MAP_WATER_LEVEL)
 	{// Do less grasses underwater...
-		gl_TessLevelOuter[0] = gl_TessLevelOuter[1] = gl_TessLevelOuter[2] = gl_TessLevelInner[0] = 0.0;// 1.0;
+		gl_TessLevelOuter[0] = gl_TessLevelOuter[1] = gl_TessLevelOuter[2] = gl_TessLevelInner[0] = 0.0;
 		return;
 	}
 #endif //__USE_UNDERWATER_ONLY__
 
 	if (!CheckGrassMapPosition(Pos))
 	{
-		gl_TessLevelOuter[0] = gl_TessLevelOuter[1] = gl_TessLevelOuter[2] = gl_TessLevelInner[0] = 0.0;// 1.0;
+		gl_TessLevelOuter[0] = gl_TessLevelOuter[1] = gl_TessLevelOuter[2] = gl_TessLevelInner[0] = 0.0;
 		return;
 	}
 
 	// UQ1: Checked and distance is faster
 	float VertDist = distance(u_ViewOrigin, Pos);
+	float CULL_RANGE = MAX_RANGE + 1024;
 
-	if (VertDist >= MAX_RANGE + 1024 // Too far from viewer...
-		|| (VertDist >= 1024.0 && Pos.z < MAP_WATER_LEVEL && u_ViewOrigin.z >= MAP_WATER_LEVEL) // Underwater and distant and player is not...
-		|| (VertDist >= 1024.0 && Pos.z >= MAP_WATER_LEVEL && u_ViewOrigin.z < MAP_WATER_LEVEL)) // Above water and player is below...
+	if (Pos.z < MAP_WATER_LEVEL)
+	{
+		CULL_RANGE = (MAX_RANGE * 1.0/*2.0*/) + 1024;
+	}
+	
+	if (VertDist >= CULL_RANGE)
 	{// Early cull...
-		gl_TessLevelOuter[0] = gl_TessLevelOuter[1] = gl_TessLevelOuter[2] = gl_TessLevelInner[0] = 0.0;// 1.0;
+#ifdef FAKE_LOD
+		gl_TessLevelOuter[0] = gl_TessLevelOuter[1] = gl_TessLevelOuter[2] = gl_TessLevelInner[0] = 1.0;
+#else //!FAKE_LOD
+		gl_TessLevelOuter[0] = gl_TessLevelOuter[1] = gl_TessLevelOuter[2] = gl_TessLevelInner[0] = 0.0;
+#endif //FAKE_LOD
 		return;
 	}
 
-	float falloffStart2 = (MAX_RANGE + 1024) / 1.5;
+	float falloffStart2 = CULL_RANGE / 1.5;
 
 	if (VertDist >= falloffStart2)
 	{
-		float falloffEnd = (MAX_RANGE + 1024) - falloffStart2;
+		float falloffEnd = CULL_RANGE - falloffStart2;
 		float pDist = clamp((VertDist - falloffStart2) / falloffEnd, 0.0, 1.0);
 		float vertDistanceScale2 = 1.0 - pDist; // Scale down to zero size by distance...
 
 		if (vertDistanceScale2 <= 0.05)
 		{
-			gl_TessLevelOuter[0] = gl_TessLevelOuter[1] = gl_TessLevelOuter[2] = gl_TessLevelInner[0] = 0.0;// 1.0;
+#ifdef FAKE_LOD
+			gl_TessLevelOuter[0] = gl_TessLevelOuter[1] = gl_TessLevelOuter[2] = gl_TessLevelInner[0] = 1.0;
+#else //!FAKE_LOD
+			gl_TessLevelOuter[0] = gl_TessLevelOuter[1] = gl_TessLevelOuter[2] = gl_TessLevelInner[0] = 0.0;
+#endif //FAKE_LOD
 			return;
 		}
 	}
@@ -166,7 +224,7 @@ void main()
 
 	if (vSize < GRASS_SURFACE_MINIMUM_SIZE)
 	{// Don't even bother...
-		gl_TessLevelOuter[0] = gl_TessLevelOuter[1] = gl_TessLevelOuter[2] = gl_TessLevelInner[0] = 0.0;// 1.0;
+		gl_TessLevelOuter[0] = gl_TessLevelOuter[1] = gl_TessLevelOuter[2] = gl_TessLevelInner[0] = 0.0;
 		return;
 	}
 
@@ -174,12 +232,15 @@ void main()
 
 	float uTessLevel = (GRASS_DENSITY * sizeMult > 1.0) ? GRASS_DENSITY * sizeMult : 1.0;
 
+	/*
 #ifndef __USE_UNDERWATER_ONLY__
 	if (Pos.z < MAP_WATER_LEVEL)
 	{// Do less grasses underwater...
-		uTessLevel = max(float(int(uTessLevel / 4.0)), 1.0);
+		//uTessLevel = max(float(int(uTessLevel / 4.0)), 1.0);
+		uTessLevel = max(float(int(uTessLevel / 2.0)), 1.0);
 	}
 #endif //__USE_UNDERWATER_ONLY__
+	*/
 
 	// (3)
 	gl_TessLevelOuter[0] = uTessLevel;

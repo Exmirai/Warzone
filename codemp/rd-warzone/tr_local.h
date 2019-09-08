@@ -49,7 +49,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 //#define __VBO_PACK_COLOR__					// Try to pack vert colors into a single float - BROKEN!
 //#define __VBO_HALF_FLOAT_COLOR__				// Try to pack vert colors into half floats - BROKEN!
 #define __HALF_FLOAT__							// Enable half float conversion code...
-#define __GLSL_OPTIMIZER__						// Enable GLSL optimization...
+//#define __GLSL_OPTIMIZER__						// Enable GLSL optimization...
 //#define __DEBUG_SHADER_LOAD__					// Enable extra GLSL shader load debugging info...
 //#define __USE_GLSL_SHADER_CACHE__				// Enable GLSL shader binary caching...
 //#define __FREE_WORLD_DATA__					// Free verts and indexes for everything with a VBO+IBO to save ram... Would need to disable saber marks to do this though...
@@ -73,7 +73,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #define __JKA_WEATHER__							// Testing JKA weather reimplementation...
 //#define __JKA_SURFACE_SPRITES__				// Testing JKA surface sprites reimplementation...
 //#define __XYC_SURFACE_SPRITES__				// Testing port of Xycaleth's surface sprite implementation...
-//#define __REALTIME_CUBEMAP__					// Render cubemap in realtime and use it...
+//#define __REALTIME_CUBEMAP__					// Render cubemap in realtime and use it... Slow as a wet week...
 //#define __GLOW_LIGHT_PVS__					// Check if lights are in PVS. Probably not worth the FPS it costs...
 //#define __USE_DETAIL_MAPS__					// Enabled detail map system... Disabling for now for more FPS...
 //#define __GEOMETRY_SHADER_ALLOW_INVOCATIONS__ // Enable geometry shader invocations support. Slower because you cant set the invocations max in realtime...
@@ -120,7 +120,11 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 //#define __CALCULATE_LIGHTDIR_FROM_LIGHT_AVERAGES__
 
+#define __CULL_BY_RANGE_AND_SIZE__				// Experimental culling of stuff at a range it wouldn't be big enough to see anyway...
+
 #define __USE_REGIONS__
+
+//#define __LIGHTS_UBO__							// Lights are in UBO block...
 
 
 #define	__PROCEDURALS_IN_DEFERRED_SHADER__		// Merge procedural draws into deferred light shader...
@@ -198,7 +202,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 #define DISTANCE_BETWEEN_CUBEMAPS	1024
 
-#define	MAX_DEFERRED_LIGHTS			128//64//128
+#define	MAX_DEFERRED_LIGHTS			64//128
 #define MAX_DEFERRED_LIGHT_RANGE	8192.0
 
 #define MAX_IMAGE_PATH				256
@@ -435,8 +439,6 @@ extern cvar_t  *r_cacheVisibleSurfaces;
 extern cvar_t  *r_mergeMultidraws;
 extern cvar_t  *r_mergeLeafSurfaces;
 
-extern cvar_t  *r_cameraExposure;
-
 extern cvar_t  *r_hdr;
 extern cvar_t  *r_postProcess;
 
@@ -446,7 +448,6 @@ extern cvar_t  *r_forceToneMapMin;
 extern cvar_t  *r_forceToneMapAvg;
 extern cvar_t  *r_forceToneMapMax;
 
-extern cvar_t  *r_autoExposure;
 extern cvar_t  *r_forceAutoExposure;
 extern cvar_t  *r_forceAutoExposureMin;
 extern cvar_t  *r_forceAutoExposureMax;
@@ -484,6 +485,10 @@ extern cvar_t  *r_proceduralSun;
 extern cvar_t  *r_proceduralSunScale;
 extern cvar_t  *r_glowStrength;
 extern cvar_t  *r_glowVibrancy;
+extern cvar_t  *r_glowMultiplierR;
+extern cvar_t  *r_glowMultiplierG;
+extern cvar_t  *r_glowMultiplierB;
+extern cvar_t  *r_glowMultiplierA;
 extern cvar_t  *r_sunlightMode;
 extern cvar_t  *r_sunlightSpecular;
 extern cvar_t  *r_drawSunRays;
@@ -648,13 +653,13 @@ extern cvar_t  *r_multipost;
 extern cvar_t  *r_screenBlurSlow;
 extern cvar_t  *r_screenBlurFast;
 //extern cvar_t  *r_hbao;
+extern cvar_t  *r_fastLighting;
 extern cvar_t  *r_deferredLighting;
 extern cvar_t  *r_ssdm;
 //extern cvar_t  *r_ssr;
 //extern cvar_t  *r_ssrStrength;
 //extern cvar_t  *r_sse;
 //extern cvar_t  *r_sseStrength;
-extern cvar_t  *r_colorCorrection;
 extern cvar_t  *r_steepParallax;
 extern cvar_t  *r_trueAnaglyph;
 extern cvar_t  *r_trueAnaglyphSeparation;
@@ -665,7 +670,6 @@ extern cvar_t  *r_trueAnaglyphPower;
 extern cvar_t  *r_trueAnaglyphMinDistance;
 extern cvar_t  *r_trueAnaglyphMaxDistance;
 extern cvar_t  *r_trueAnaglyphParallax;
-extern cvar_t  *r_vibrancy;
 extern cvar_t  *r_distanceBlur;
 extern cvar_t  *r_fogPost;
 extern cvar_t  *r_dayNightCycleSpeed;
@@ -742,6 +746,7 @@ typedef enum
 	IMGTYPE_ROADMAP,
 	IMGTYPE_DETAILMAP,
 	IMGTYPE_ROOFMAP,
+	IMGTYPE_SHADOW,
 } imgType_t;
 
 typedef enum
@@ -770,7 +775,8 @@ typedef struct image_s {
 	char		imgName[MAX_IMAGE_PATH];		// game path, including extension
 	int			width, height;				// source image
 	int			uploadWidth, uploadHeight;	// after power of two and picmip but not including clamp to MAX_TEXTURE_SIZE
-	GLuint		texnum;					// gl texture binding
+	GLuint		texnum;						// gl texture binding
+	GLuint64	bindlessHandle;				// bindless texture handle
 
 	int			frameUsed;			// for texture usage in frame statistics
 
@@ -801,6 +807,68 @@ typedef struct image_s {
 
 	struct image_s*	next;
 } image_t;
+
+typedef struct bindlessTexturesBlock_s
+{
+	GLuint64 					u_DiffuseMap;
+	GLuint64 					u_LightMap;
+	GLuint64 					u_NormalMap;
+	GLuint64 					u_DeluxeMap;
+	GLuint64 					u_SpecularMap;
+	GLuint64 					u_PositionMap;
+	GLuint64 					u_WaterPositionMap;
+	GLuint64 					u_WaterHeightMap;
+	GLuint64 					u_HeightMap;
+	GLuint64 					u_GlowMap;
+	GLuint64 					u_EnvironmentMap;
+	GLuint64 					u_TextureMap;
+	GLuint64 					u_LevelsMap;
+	GLuint64 					u_CubeMap;
+	GLuint64 					u_SkyCubeMap;
+	GLuint64 					u_SkyCubeMapNight;
+	GLuint64 					u_EmissiveCubeMap;
+	GLuint64 					u_OverlayMap;
+	GLuint64 					u_SteepMap;
+	GLuint64 					u_SteepMap1;
+	GLuint64 					u_SteepMap2;
+	GLuint64 					u_SteepMap3;
+	GLuint64 					u_WaterEdgeMap;
+	GLuint64 					u_SplatControlMap;
+	GLuint64 					u_SplatMap1;
+	GLuint64 					u_SplatMap2;
+	GLuint64 					u_SplatMap3;
+	GLuint64 					u_RoadsControlMap;
+	GLuint64 					u_RoadMap;
+	GLuint64 					u_DetailMap;
+	GLuint64 					u_ScreenImageMap;
+	GLuint64 					u_ScreenDepthMap;
+	GLuint64 					u_ShadowMap;
+	GLuint64 					u_ShadowMap2;
+	GLuint64 					u_ShadowMap3;
+	GLuint64 					u_ShadowMap4;
+	GLuint64 					u_ShadowMap5;
+	GLuint64 					u_MoonMaps[4];
+} bindlessTexturesBlock_t;
+
+typedef struct
+{
+	GLfloat x;                    // X Component
+	GLfloat y;                    // Y Component
+	GLfloat z;                    // Z Component
+} GLVec3;
+
+#ifdef __LIGHTS_UBO__
+typedef struct LightBlock_s
+{
+	GLint										u_lightCount;
+	GLVec3										u_lightPositions2[MAX_DEFERRED_LIGHTS];
+	GLfloat										u_lightDistances[MAX_DEFERRED_LIGHTS];
+	GLVec3										u_lightColors[MAX_DEFERRED_LIGHTS];
+	//GLfloat									u_lightConeAngles[MAX_DEFERRED_LIGHTS];
+	//GLVec3									u_lightConeDirections[MAX_DEFERRED_LIGHTS];
+	GLfloat										u_lightMaxDistance;
+} LightBlock_t;
+#endif //__LIGHTS_UBO__
 
 typedef struct dlight_s {
 	vec3_t	origin;
@@ -1272,6 +1340,8 @@ typedef struct {
 	float			glowVibrancy;
 	qboolean		glowNoMerge;
 
+	vec4_t			glowMultiplierRGBA;
+
 	vec3_t			particleColor;
 
 	vec3_t			portalColor1;
@@ -1643,8 +1713,6 @@ typedef enum
 	UNIFORM_ROADMAP,
 	UNIFORM_DETAILMAP,
 
-	UNIFORM_MOONMAPS,
-
 	UNIFORM_SCREENIMAGEMAP,
 	UNIFORM_SCREENDEPTHMAP,
 
@@ -1653,6 +1721,8 @@ typedef enum
 	UNIFORM_SHADOWMAP3,
 	UNIFORM_SHADOWMAP4,
 	UNIFORM_SHADOWMAP5,
+
+	UNIFORM_MOONMAPS,
 
 	UNIFORM_SHADOWMVP,
 	UNIFORM_SHADOWMVP2,
@@ -1785,6 +1855,13 @@ typedef enum
 	UNIFORM_LOCAL11,
 	UNIFORM_LOCAL12,
 	UNIFORM_LOCAL13,
+	UNIFORM_LOCAL14,
+	UNIFORM_LOCAL15,
+	UNIFORM_LOCAL16,
+	UNIFORM_LOCAL17,
+	UNIFORM_LOCAL18,
+	UNIFORM_LOCAL19,
+	UNIFORM_LOCAL20,
 
 	UNIFORM_MOON_COUNT,
 	UNIFORM_MOON_INFOS,
@@ -1811,6 +1888,8 @@ typedef enum
 	UNIFORM_VLIGHTDISTANCES,
 	UNIFORM_VLIGHTCOLORS,
 
+	UNIFORM_GLOWMULTIPLIER,
+
 	UNIFORM_SAMPLES,
 	//UNIFORM_SSDO_KERNEL,
 
@@ -1821,36 +1900,56 @@ typedef enum
 // GLSL vertex and one GLSL fragment shader
 typedef struct shaderProgram_s
 {
-	char *name;
+	std::string					name;
 
-	GLuint     program;
-	GLuint     vertexShader;
-	GLuint     fragmentShader;
-	GLuint     tessControlShader;
-	GLuint     tessEvaluationShader;
-	GLuint     geometryShader;
-	uint32_t        attribs;	// vertex array attributes
+	GLuint						program;
+	GLuint						vertexShader;
+	GLuint						fragmentShader;
+	GLuint						tessControlShader;
+	GLuint						tessEvaluationShader;
+	GLuint						geometryShader;
+	uint32_t					attribs;	// vertex array attributes
 
 	// uniform parameters
-	int numUniforms;
-	GLint *uniforms;
-	short *uniformBufferOffsets;
-	char  *uniformBuffer;
+	int							numUniforms;
+	GLint						*uniforms;
+	short						*uniformBufferOffsets;
+	char						*uniformBuffer;
 
-	qboolean tesselation;
-	qboolean geometry;
+	qboolean					tesselation;
+	qboolean					geometry;
 
-	GLuint instances_mvp = 0;
-	GLuint instances_buffer = 0;
+	GLuint						instances_mvp = 0;
+	GLuint						instances_buffer = 0;
+
+	std::string					vertexText;
+	std::string					fragText;
+	std::string					tessControlText;
+	std::string					tessEvaluationText;
+	std::string					geometryText;
 
 	// keep the glsl source code around so we can live edit it
-	char vertexText[MAX_GLSL_LENGTH];
-	char fragText[MAX_GLSL_LENGTH];
-	int usageCount;
+	char						vertexTextChar[MAX_GLSL_LENGTH];
+	char						fragTextChar[MAX_GLSL_LENGTH];
+	int							usageCount;
+
+	qboolean					isBindless;
+
+	GLuint						bindLessBindingPoint = 0;
+	bindlessTexturesBlock_t		bindlessBlock;
+	bindlessTexturesBlock_t		bindlessBlockPrevious;
+	GLuint						bindlessBlockUBO = 0;
 
 #ifdef __USE_GLSL_SHADER_CACHE__
-	qboolean binaryLoaded = qfalse;
+	qboolean					binaryLoaded = qfalse;
 #endif //__USE_GLSL_SHADER_CACHE__
+
+#ifdef __LIGHTS_UBO__
+	GLuint						LightsBindingPoint = 0;
+	LightBlock_t				LightsBlock;
+	LightBlock_t				LightsBlockPrevious;
+	GLuint						LightsBlockUBO = 0;
+#endif //__LIGHTS_UBO__
 } shaderProgram_t;
 
 // trRefdef_t holds everything that comes in refdef_t,
@@ -1908,6 +2007,7 @@ typedef struct {
 
 #ifdef __REALTIME_CUBEMAP__
 	vec3_t		realtimeCubemapOrigin;
+	qboolean	realtimeCubemapRendered = qfalse;
 #endif //__REALTIME_CUBEMAP__
 
 	float       autoExposureMinMax[2];
@@ -2738,6 +2838,8 @@ typedef struct {
 	qboolean immutableTextures;
 
 	qboolean floatLightmap;
+
+	qboolean bindlessTextures;
 } glRefConfig_t;
 
 
@@ -2774,6 +2876,9 @@ typedef struct {
 	int     c_lightallDraws;
 	int     c_fogDraws;
 	int     c_lightMapsSkipped;
+	int     c_tinySkipped;
+	int     c_transparancyDraws;
+	int     c_glowDraws;
 
 	int		msec;			// total msec for backend run
 } backEndCounters_t;
@@ -2781,6 +2886,7 @@ typedef struct {
 typedef enum {
 	RENDERPASS_NONE,
 	RENDERPASS_PSHADOWS,
+	RENDERPASS_GRASS_PATCHES,
 	RENDERPASS_GRASS,
 	RENDERPASS_GRASS2,
 	RENDERPASS_GRASS3,
@@ -2913,6 +3019,7 @@ typedef struct trGlobals_s {
 	image_t					*waterHeightMapImage;
 	image_t					*foliageMapImage;
 	image_t					*grassImage[16];
+	image_t					*grassPatchesAliasImage;
 	image_t					*grassAliasImage[4];
 	image_t					*seaGrassImage[4];
 	image_t					*seaGrassAliasImage[4];
@@ -2922,7 +3029,6 @@ typedef struct trGlobals_s {
 	image_t					*seaVinesImage[4];
 	image_t					*seaVinesAliasImage;
 	image_t					*foliageAliasImage;
-	image_t					*paletteImage;
 	image_t					*roadsMapImage;
 	image_t					*tessellationMapImage;
 	image_t					*roadImage;
@@ -2960,6 +3066,7 @@ typedef struct trGlobals_s {
 	image_t					*targetLevelsImage;
 	image_t					*fixedLevelsImage;
 	image_t					*sunShadowDepthImage[5];
+	image_t					*sunSoftShadowImage[5];
 	image_t                 *screenShadowImage;
 	image_t                 *screenShadowBlurTempImage;
 	image_t                 *screenShadowBlurImage;
@@ -3010,6 +3117,7 @@ typedef struct trGlobals_s {
 	FBO_t					*calcLevelsFbo;
 	FBO_t					*targetLevelsFbo;
 	FBO_t					*sunShadowFbo[5];
+	FBO_t					*sunSoftShadowFbo[5];
 	FBO_t					*screenShadowFbo;
 	FBO_t					*screenShadowBlurTempFbo;
 	FBO_t					*screenShadowBlurFbo;
@@ -3021,6 +3129,7 @@ typedef struct trGlobals_s {
 	shader_t				*shadowShader;
 	shader_t				*distortionShader;
 	shader_t				*projectionShadowShader;
+	shader_t				*purpleShader;
 
 	shader_t				*flareShader;
 	shader_t				*sunShader;
@@ -3072,9 +3181,9 @@ typedef struct trGlobals_s {
 	shaderProgram_t lightAllSplatShader[4];
 	shaderProgram_t skyShader;
 	shaderProgram_t depthPassShader[4];
-	shaderProgram_t sunPassShader;
-	shaderProgram_t moonPassShader;
-	shaderProgram_t planetPassShader;
+	//shaderProgram_t sunPassShader;
+	//shaderProgram_t moonPassShader;
+	//shaderProgram_t planetPassShader;
 	shaderProgram_t fireShader;
 	shaderProgram_t smokeShader;
 	shaderProgram_t magicParticlesShader;
@@ -3082,15 +3191,15 @@ typedef struct trGlobals_s {
 	shaderProgram_t magicParticlesFireFlyShader;
 	shaderProgram_t portalShader;
 	shaderProgram_t menuBackgroundShader;
-	shaderProgram_t shadowmapShader[4];
+	shaderProgram_t shadowFillShader[4];
 	shaderProgram_t pshadowShader[4];
-	shaderProgram_t down4xShader;
+	//shaderProgram_t down4xShader;
 	shaderProgram_t bokehShader;
 	shaderProgram_t tonemapShader;
 	shaderProgram_t calclevels4xShader[2];
 	shaderProgram_t shadowmaskShader;
 	shaderProgram_t ssaoShader;
-	shaderProgram_t depthBlurShader[2];
+	//shaderProgram_t depthBlurShader[2];
 	shaderProgram_t testcubeShader;
 	shaderProgram_t gaussianBlurShader[2];
 	shaderProgram_t glowCompositeShader;
@@ -3122,8 +3231,8 @@ typedef struct trGlobals_s {
 	shaderProgram_t waterReflectionShader;
 	shaderProgram_t transparancyPostShader;
 	shaderProgram_t cloudsShader;
-	shaderProgram_t furShader;
 	shaderProgram_t foliageShader;
+	shaderProgram_t grassPatchesShader;
 	shaderProgram_t grassShader[2];
 	shaderProgram_t vinesShader;
 	shaderProgram_t mistShader;
@@ -3147,6 +3256,7 @@ typedef struct trGlobals_s {
 	shaderProgram_t volumeLightInvertedShader[3];
 	shaderProgram_t volumeLightCombineShader;
 	shaderProgram_t fastBlurShader;
+	shaderProgram_t shadowBlurShader;
 	shaderProgram_t bloomRaysShader;
 	shaderProgram_t distanceBlurShader[4];
 	shaderProgram_t dofFocusDepthShader;
@@ -3154,6 +3264,7 @@ typedef struct trGlobals_s {
 	shaderProgram_t colorCorrectionShader;
 	shaderProgram_t showNormalsShader;
 	shaderProgram_t showDepthShader;
+	shaderProgram_t fastLightingShader;
 	shaderProgram_t deferredLightingShader[3];
 	shaderProgram_t proceduralShader;
 	shaderProgram_t ssdmShader;
@@ -3438,12 +3549,9 @@ extern  cvar_t  *r_forceToneMapMin;
 extern  cvar_t  *r_forceToneMapAvg;
 extern  cvar_t  *r_forceToneMapMax;
 
-extern  cvar_t  *r_autoExposure;
 extern  cvar_t  *r_forceAutoExposure;
 extern  cvar_t  *r_forceAutoExposureMin;
 extern  cvar_t  *r_forceAutoExposureMax;
-
-extern  cvar_t  *r_cameraExposure;
 
 extern  cvar_t  *r_srgb;
 
@@ -3485,6 +3593,10 @@ extern cvar_t  *r_proceduralSun;
 extern cvar_t  *r_proceduralSunScale;
 extern cvar_t  *r_glowStrength;
 extern cvar_t  *r_glowVibrancy;
+extern cvar_t  *r_glowMultiplierR;
+extern cvar_t  *r_glowMultiplierG;
+extern cvar_t  *r_glowMultiplierB;
+extern cvar_t  *r_glowMultiplierA;
 extern  cvar_t  *r_sunlightMode;
 extern cvar_t  *r_sunlightSpecular;
 extern  cvar_t  *r_drawSunRays;
@@ -3605,7 +3717,6 @@ extern cvar_t  *r_trueAnaglyphBlue;
 extern cvar_t  *r_trueAnaglyphMinDistance;
 extern cvar_t  *r_trueAnaglyphMaxDistance;
 extern cvar_t  *r_trueAnaglyphParallax;
-extern cvar_t  *r_vibrancy;
 extern cvar_t  *r_dayNightCycleSpeed;
 extern cvar_t  *r_testshader;
 extern cvar_t  *r_testshaderValue1;
@@ -3679,6 +3790,7 @@ void    GL_SetProjectionMatrix(matrix_t matrix);
 void    GL_SetModelviewMatrix(matrix_t matrix);
 void	GL_TexEnv( int env );
 void	GL_Cull( int cullType );
+void	GLSL_SetBindlessTexture(shaderProgram_t *program, int uniformNum, image_t **images, int arrayID);
 
 #define LERP( a, b, w ) ( ( a ) * ( 1.0f - ( w ) ) + ( b ) * ( w ) )
 #define LUMA( red, green, blue ) ( 0.2126f * ( red ) + 0.7152f * ( green ) + 0.0722f * ( blue ) )
@@ -4434,7 +4546,8 @@ void RE_AddDecalToScene ( qhandle_t shader, const vec3_t origin, const vec3_t di
 void R_AddDecals( void );
 
 image_t	*R_FindImageFile( const char *name, imgType_t type, int flags );
-image_t	*R_BakeTextures(char names[16][512], int numNames, const char *outputName, imgType_t type, int flags);
+image_t	*R_BakeTextures(char names[16][512], int numNames, const char *outputName, imgType_t type, int flags, qboolean isGrass);
+void GL_SetupBindlessTexture(image_t *image);
 
 #ifdef __DEFERRED_IMAGE_LOADING__
 image_t	*R_DeferImageLoad(const char *name, imgType_t type, int flags);

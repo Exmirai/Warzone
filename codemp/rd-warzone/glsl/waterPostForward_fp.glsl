@@ -1,14 +1,58 @@
 uniform vec4		u_Local9;
 uniform vec4		u_Local10;
 
-uniform sampler2D	u_DiffuseMap;
+#if defined(USE_BINDLESS_TEXTURES)
+layout(std140) uniform u_bindlessTexturesBlock
+{
+uniform sampler2D					u_DiffuseMap;
+uniform sampler2D					u_LightMap;
+uniform sampler2D					u_NormalMap;
+uniform sampler2D					u_DeluxeMap;
+uniform sampler2D					u_SpecularMap;
+uniform sampler2D					u_PositionMap;
+uniform sampler2D					u_WaterPositionMap;
+uniform sampler2D					u_WaterHeightMap;
+uniform sampler2D					u_HeightMap;
+uniform sampler2D					u_GlowMap;
+uniform sampler2D					u_EnvironmentMap;
+uniform sampler2D					u_TextureMap;
+uniform sampler2D					u_LevelsMap;
+uniform sampler2D					u_CubeMap;
+uniform sampler2D					u_SkyCubeMap;
+uniform sampler2D					u_SkyCubeMapNight;
+uniform sampler2D					u_EmissiveCubeMap;
+uniform sampler2D					u_OverlayMap;
+uniform sampler2D					u_SteepMap;
+uniform sampler2D					u_SteepMap1;
+uniform sampler2D					u_SteepMap2;
+uniform sampler2D					u_SteepMap3;
+uniform sampler2D					u_WaterEdgeMap;
+uniform sampler2D					u_SplatControlMap;
+uniform sampler2D					u_SplatMap1;
+uniform sampler2D					u_SplatMap2;
+uniform sampler2D					u_SplatMap3;
+uniform sampler2D					u_RoadsControlMap;
+uniform sampler2D					u_RoadMap;
+uniform sampler2D					u_DetailMap;
+uniform sampler2D					u_ScreenImageMap;
+uniform sampler2D					u_ScreenDepthMap;
+uniform sampler2D					u_ShadowMap;
+uniform sampler2D					u_ShadowMap2;
+uniform sampler2D					u_ShadowMap3;
+uniform sampler2D					u_ShadowMap4;
+uniform sampler2D					u_ShadowMap5;
+uniform sampler2D					u_MoonMaps[4];
+};
+#else //!defined(USE_BINDLESS_TEXTURES)
+uniform sampler2D					u_DiffuseMap;
+#endif //defined(USE_BINDLESS_TEXTURES)
 
-varying vec2		var_TexCoords;
-varying vec3		var_vertPos;
-varying vec3		var_Normal;
-flat varying float	var_IsWater;
+varying vec2						var_TexCoords;
+varying vec3						var_vertPos;
+varying vec3						var_Normal;
+flat varying float					var_IsWater;
 
-#define material	u_Local10.b
+#define material					u_Local10.b
 
 out vec4 out_Glow;
 out vec4 out_Normal;
@@ -97,20 +141,22 @@ void main()
 	//if (var_IsWater >= 2.0 && var_IsWater <= 5.0)
 	//	out_Color = vec4(texture(u_DiffuseMap, var_TexCoords).rgb, 1.0);
 	//else
-	//	out_Color = vec4(0.0059, 0.3096, 0.445, 1.0);
+	//	out_Color = vec4(1.0);
 
 	if (material == 2.0 || material == 5.0)
 	{
-		out_Position = vec4(texture(u_DiffuseMap, var_TexCoords).rgb, var_IsWater);
-		out_Color = vec4(0.0059, 0.3096, 0.445, 1.0);
+		out_Position = vec4(texture(u_DiffuseMap, var_TexCoords).rgb, material);
+		out_Color = vec4(1.0);
 	}
 	else if (material == 3.0 || material == 4.0)
 	{
 		float dist = (0.5 - distance(var_TexCoords, vec2(0.5))) * 2.0;
+		dist = pow(dist, 4.0);
+
 		if (dist > 0.0)
 		{
-			out_Position = vec4(dist, var_TexCoords.x - 0.5, var_TexCoords.y - 0.5, var_IsWater);
-			out_Color = vec4(0.0059, 0.3096, 0.445, 1.0);
+			out_Position = vec4(dist, var_TexCoords.x - 0.5, var_TexCoords.y - 0.5, material);
+			out_Color = vec4(1.0);
 		}
 		else
 		{
@@ -121,6 +167,6 @@ void main()
 	else
 	{
 		out_Position = vec4(var_vertPos.xyz, var_IsWater);
-		out_Color = vec4(0.0059, 0.3096, 0.445, 1.0);
+		out_Color = vec4(1.0);
 	}
 }

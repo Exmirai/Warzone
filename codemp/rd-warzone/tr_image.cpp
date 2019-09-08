@@ -2355,6 +2355,17 @@ static bool IsPowerOfTwo ( int i )
 	return (i & (i - 1)) == 0;
 }
 
+void GL_SetupBindlessTexture(image_t *image)
+{
+	if (!image->bindlessHandle)
+	{
+		image->bindlessHandle = qglGetTextureHandle(image->texnum);
+		//ri->Printf(PRINT_WARNING, "Texture %s bindlessHandle %u.\n", image->imgName, image->bindlessHandle);
+	}
+
+	qglMakeTextureHandleResident(image->bindlessHandle);
+}
+
 /*
 ===============
 Upload32
@@ -2753,6 +2764,36 @@ image_t *R_CreateImage( const char *name, byte *pic, int width, int height, imgT
 		qglTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, glWrapClampMode );
 	}
 
+	if (type == IMGTYPE_SHADOW)
+	{
+		qglTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, 0.0);
+
+		//qglTextureParameterfEXT(tr.sunShadowDepthImage[x]->texnum, GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_R_TO_TEXTURE);
+		//qglTextureParameterfEXT(tr.sunShadowDepthImage[x]->texnum, GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC, /*GL_LESS*/GL_LEQUAL);
+
+		qglTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		qglTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		//qglTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_R_TO_TEXTURE);
+		//qglTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
+
+		/*
+		GLfloat border[] = { 0.0f,0.0f,0.0f,0.0f };
+		qglTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, border);
+		qglTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+		qglTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+		qglTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_BORDER);
+		*/
+
+		//qglTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
+		qglTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_R_TO_TEXTURE);
+		qglTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL/*GL_LESS*/);
+	}
+
+	if (glRefConfig.bindlessTextures)
+	{
+		GL_SetupBindlessTexture(image);
+	}
+
 	//ri->Printf(PRINT_WARNING, "R_CreateImage Debug: %s. Uploaded.\n", name);
 
 	GL_SelectTexture( 0 );
@@ -2882,6 +2923,36 @@ image_t *R_CreateCubemapFromImageDatas(const char *name, byte **pic, int width, 
 
 		qglTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, glWrapClampMode);
 		qglTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, glWrapClampMode);
+	}
+
+	if (type == IMGTYPE_SHADOW)
+	{
+		qglTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, 0.0);
+
+		//qglTextureParameterfEXT(tr.sunShadowDepthImage[x]->texnum, GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_R_TO_TEXTURE);
+		//qglTextureParameterfEXT(tr.sunShadowDepthImage[x]->texnum, GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC, /*GL_LESS*/GL_LEQUAL);
+
+		qglTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		qglTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		//qglTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_R_TO_TEXTURE);
+		//qglTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
+
+		/*
+		GLfloat border[] = { 0.0f,0.0f,0.0f,0.0f };
+		qglTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, border);
+		qglTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+		qglTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+		qglTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_BORDER);
+		*/
+
+		//qglTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
+		qglTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_R_TO_TEXTURE);
+		qglTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL/*GL_LESS*/);
+	}
+
+	if (glRefConfig.bindlessTextures)
+	{
+		GL_SetupBindlessTexture(image);
 	}
 
 	GL_SelectTexture(0);
@@ -3723,12 +3794,14 @@ image_t	*R_FindImageFile( const char *name, imgType_t type, int flags )
 	//
 	for (image=hashTable[hash]; image; image=image->next) {
 		if ( !strcmp( name, image->imgName ) ) {
+#ifdef __DEVELOPER_MODE__
 			// the white image can be used with any set of parms, but other mismatches are errors
 			if ( strcmp( name, "*white" ) ) {
 				if ( image->flags != flags ) {
 					ri->Printf( PRINT_DEVELOPER, "WARNING: reused image %s with mixed flags (%i vs %i)\n", name, image->flags, flags );
 				}
 			}
+#endif //__DEVELOPER_MODE__
 			return image;
 		}
 	}
@@ -3823,12 +3896,14 @@ image_t	*R_FindImageFile( const char *name, imgType_t type, int flags )
 	//
 	for (image = hashTable[hash]; image; image = image->next) {
 		if (crcHash == image->crcHash) {
+#ifdef __DEVELOPER_MODE__
 			// the white image can be used with any set of parms, but other mismatches are errors
 			//if (strcmp(name, "*white")) {
 			//	if (image->flags != flags) {
 			//		ri->Printf(PRINT_DEVELOPER, "WARNING: reused image %s with mixed flags (%i vs %i)\n", name, image->flags, flags);
 			//	}
 			//}
+#endif //__DEVELOPER_MODE__
 
 #ifdef __TINY_IMAGE_LOADER__
 			if (isTIL)
@@ -4154,7 +4229,7 @@ int R_GetBakedTextureForOffset(vec2_t offset, int numTextures)
 	return 0;
 }
 
-image_t	*R_BakeTextures(char names[16][512], int numNames, const char *outputName, imgType_t type, int flags)
+image_t	*R_BakeTextures(char names[16][512], int numNames, const char *outputName, imgType_t type, int flags, qboolean isGrass)
 {
 	image_t		*image;
 	
@@ -4386,31 +4461,55 @@ image_t	*R_BakeTextures(char names[16][512], int numNames, const char *outputNam
 		}
 	}
 
-	for (int i = 0; i < numNames; i++)
-	{
-		// Add up the average colors, so we can get the final average...
-		finalAvgColor[0] += avgColors[i][0];
-		finalAvgColor[1] += avgColors[i][1];
-		finalAvgColor[2] += avgColors[i][2];
+	if (isGrass)
+	{// We only want the average color of the main grass texture to use for fake distant grass...
+		VectorCopy(avgColors[0], finalAvgColor);
 
-		// Free memory from original images...
-#ifdef __TINY_IMAGE_LOADER__
-		if (isTilImage[i])
+		for (int i = 0; i < numNames; i++)
 		{
-			if (tImages[i])
+			// Free memory from original images...
+#ifdef __TINY_IMAGE_LOADER__
+			if (isTilImage[i])
 			{
-				til::TIL_Release(tImages[i]);
-				pics[i] = NULL;
+				if (tImages[i])
+				{
+					til::TIL_Release(tImages[i]);
+					pics[i] = NULL;
+				}
 			}
-		}
-		else
+			else
 #endif
-			Z_Free(pics[i]);
+				Z_Free(pics[i]);
+		}
 	}
+	else
+	{
+		for (int i = 0; i < numNames; i++)
+		{
+			// Add up the average colors, so we can get the final average...
+			finalAvgColor[0] += avgColors[i][0];
+			finalAvgColor[1] += avgColors[i][1];
+			finalAvgColor[2] += avgColors[i][2];
 
-	finalAvgColor[0] /= numNames;
-	finalAvgColor[1] /= numNames;
-	finalAvgColor[2] /= numNames;
+			// Free memory from original images...
+#ifdef __TINY_IMAGE_LOADER__
+			if (isTilImage[i])
+			{
+				if (tImages[i])
+				{
+					til::TIL_Release(tImages[i]);
+					pics[i] = NULL;
+				}
+			}
+			else
+#endif
+				Z_Free(pics[i]);
+		}
+
+		finalAvgColor[0] /= numNames;
+		finalAvgColor[1] /= numNames;
+		finalAvgColor[2] /= numNames;
+	}
 
 	if (r_mipMapTextures->integer)
 		flags |= IMGFLAG_MIPMAP;
@@ -4683,7 +4782,6 @@ void R_CreateBuiltinImages( void ) {
 		skyImagesData[z] = NULL;
 	VectorSet4(tr.greyCube->lightColor, 0.0, 0.0, 0.0, 1.0);
 	
-
 	tr.randomImage = R_FindImageFile("gfx/random.png", IMGTYPE_COLORALPHA, IMGFLAG_NOLIGHTSCALE | IMGFLAG_CLAMPTOEDGE | IMGFLAG_MIPMAP /*| IMGFLAG_NO_COMPRESSION*/);
 
 	/*if (r_shadows->integer == 3)
@@ -4909,16 +5007,9 @@ void R_CreateBuiltinImages( void ) {
 	int shadowDepth = GL_DEPTH_COMPONENT24;// GL_DEPTH_COMPONENT32;
 	if (r_sunlightMode->integer >= 2)
 	{
-		for ( x = 0; x < 3; x++)
+		for ( x = 0; x < 5; x++)
 		{
-			if (x >= 2)
-				tr.sunShadowDepthImage[x] = R_CreateImage(va("*sunshadowdepth%i", x), NULL, (r_shadowMapSize->integer * 2.0) / vramScaleDiv, (r_shadowMapSize->integer * 2.0) / vramScaleDiv, IMGTYPE_COLORALPHA, IMGFLAG_NO_COMPRESSION | IMGFLAG_CLAMPTOEDGE | IMGFLAG_NOLIGHTSCALE, shadowDepth/*hdrDepth*/);
-			else if (x >= 1)
-				tr.sunShadowDepthImage[x] = R_CreateImage(va("*sunshadowdepth%i", x), NULL, (r_shadowMapSize->integer * 1.0) / vramScaleDiv, (r_shadowMapSize->integer * 1.0) / vramScaleDiv, IMGTYPE_COLORALPHA, IMGFLAG_NO_COMPRESSION | IMGFLAG_CLAMPTOEDGE | IMGFLAG_NOLIGHTSCALE, shadowDepth/*hdrDepth*/);
-			else
-				tr.sunShadowDepthImage[x] = R_CreateImage(va("*sunshadowdepth%i", x), NULL, r_shadowMapSize->integer / vramScaleDiv, r_shadowMapSize->integer / vramScaleDiv, IMGTYPE_COLORALPHA, IMGFLAG_NO_COMPRESSION | IMGFLAG_CLAMPTOEDGE | IMGFLAG_NOLIGHTSCALE, shadowDepth/*hdrDepth*/);
-			qglTextureParameterfEXT(tr.sunShadowDepthImage[x]->texnum, GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_R_TO_TEXTURE);
-			qglTextureParameterfEXT(tr.sunShadowDepthImage[x]->texnum, GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
+			tr.sunShadowDepthImage[x] = R_CreateImage(va("*sunshadowdepth%i", x), NULL, r_shadowMapSize->integer / vramScaleDiv, r_shadowMapSize->integer / vramScaleDiv, IMGTYPE_SHADOW, IMGFLAG_NO_COMPRESSION | IMGFLAG_CLAMPTOEDGE | IMGFLAG_NOLIGHTSCALE, shadowDepth/*hdrDepth*/);
 		}
 
 		//tr.screenShadowImage = R_CreateImage("*screenShadow", NULL, (width/2.0) / vramScaleDiv, (height/2.0) / vramScaleDiv, IMGTYPE_COLORALPHA, IMGFLAG_NO_COMPRESSION | IMGFLAG_CLAMPTOEDGE | IMGFLAG_NOLIGHTSCALE, hdrFormat);

@@ -8,7 +8,49 @@
 #define SCREEN_MAPS_LEAFS_THRESHOLD 0.001
 //#define SCREEN_MAPS_LEAFS_THRESHOLD 0.9
 
-
+#if defined(USE_BINDLESS_TEXTURES)
+layout(std140) uniform u_bindlessTexturesBlock
+{
+uniform sampler2D					u_DiffuseMap;
+uniform sampler2D					u_LightMap;
+uniform sampler2D					u_NormalMap;
+uniform sampler2D					u_DeluxeMap;
+uniform sampler2D					u_SpecularMap;
+uniform sampler2D					u_PositionMap;
+uniform sampler2D					u_WaterPositionMap;
+uniform sampler2D					u_WaterHeightMap;
+uniform sampler2D					u_HeightMap;
+uniform sampler2D					u_GlowMap;
+uniform sampler2D					u_EnvironmentMap;
+uniform sampler2D					u_TextureMap;
+uniform sampler2D					u_LevelsMap;
+uniform sampler2D					u_CubeMap;
+uniform sampler2D					u_SkyCubeMap;
+uniform sampler2D					u_SkyCubeMapNight;
+uniform sampler2D					u_EmissiveCubeMap;
+uniform sampler2D					u_OverlayMap;
+uniform sampler2D					u_SteepMap;
+uniform sampler2D					u_SteepMap1;
+uniform sampler2D					u_SteepMap2;
+uniform sampler2D					u_SteepMap3;
+uniform sampler2D					u_WaterEdgeMap;
+uniform sampler2D					u_SplatControlMap;
+uniform sampler2D					u_SplatMap1;
+uniform sampler2D					u_SplatMap2;
+uniform sampler2D					u_SplatMap3;
+uniform sampler2D					u_RoadsControlMap;
+uniform sampler2D					u_RoadMap;
+uniform sampler2D					u_DetailMap;
+uniform sampler2D					u_ScreenImageMap;
+uniform sampler2D					u_ScreenDepthMap;
+uniform sampler2D					u_ShadowMap;
+uniform sampler2D					u_ShadowMap2;
+uniform sampler2D					u_ShadowMap3;
+uniform sampler2D					u_ShadowMap4;
+uniform sampler2D					u_ShadowMap5;
+uniform sampler2D					u_MoonMaps[4];
+};
+#else //!defined(USE_BINDLESS_TEXTURES)
 uniform sampler2D					u_DiffuseMap;
 uniform sampler2D					u_GlowMap;
 uniform sampler2D					u_LightMap;
@@ -16,7 +58,7 @@ uniform sampler2D					u_NormalMap;
 uniform sampler2D					u_DeluxeMap;
 uniform sampler2D					u_OverlayMap;
 uniform sampler2D					u_EnvironmentMap;
-
+#endif //defined(USE_BINDLESS_TEXTURES)
 
 uniform vec4						u_MapAmbient; // a basic light/color addition across the whole map...
 
@@ -76,6 +118,7 @@ uniform vec4						u_Mins;
 uniform vec4						u_Maxs;
 
 uniform vec3						u_ColorMod;
+uniform vec4						u_GlowMultiplier;
 
 uniform float						u_Time;
 
@@ -124,7 +167,7 @@ in precise vec3				Blending_FS_in;
 flat in float				Slope_FS_in;
 
 
-#define m_Normal 			normalize(Normal_FS_in.xyz)
+vec3 m_Normal 				= normalize(gl_FrontFacing ? -Normal_FS_in.xyz : Normal_FS_in.xyz);
 
 #define m_TexCoords			TexCoord_FS_in
 #define m_envTC				envTC_FS_in
@@ -159,7 +202,7 @@ varying vec3				var_Blending;
 varying float				var_Slope;
 
 
-#define m_Normal			var_Normal
+vec3 m_Normal				= normalize(gl_FrontFacing ? -var_Normal : var_Normal);
 #define m_TexCoords			var_TexCoords
 #define m_envTC				var_envTC
 #define m_vertPos			var_vertPos
@@ -1179,7 +1222,7 @@ void main()
 		glowColor.rgb *= glowColor.a;
 
 		glowColor.a = clamp(glowColor.a, 0.0, 1.0);
-		out_Glow = glowColor;
+		out_Glow = glowColor * u_GlowMultiplier;
 		
 		//out_Glow.rgb = clamp(out_Glow.rgb, 0.0, 2.0); // cap stregnth for the sake of the buffer
 
@@ -1241,7 +1284,7 @@ void main()
 			glowColor.a = 0.0;
 
 		glowColor.a = clamp(glowColor.a, 0.0, 1.0);
-		out_Glow = glowColor;
+		out_Glow = glowColor * u_GlowMultiplier;
 
 		//out_Glow.rgb = clamp(out_Glow.rgb, 0.0, 2.0); // cap stregnth for the sake of the buffer
 

@@ -1524,6 +1524,7 @@ void RB_RenderDrawSurfList(drawSurf_t *drawSurfs, int numDrawSurfs, qboolean inQ
 	for (int type = RENDERPASS_NONE; type < RENDERPASS_MAX; type++)
 	{// Redraw the relevant scene objects so that the procedural systems can use the vert points for their stuff...
 		// Skip passes if not currenty enabled...
+		if (type == RENDERPASS_GRASS_PATCHES && !GRASS_PATCHES_ENABLED) continue;
 		if (type == RENDERPASS_GRASS && !GRASS_ENABLED) continue;
 		if (type == RENDERPASS_GRASS2 && !GRASS2_ENABLED) continue;
 		if (type == RENDERPASS_GRASS3 && !GRASS3_ENABLED) continue;
@@ -1579,6 +1580,11 @@ void RB_RenderDrawSurfList(drawSurf_t *drawSurfs, int numDrawSurfs, qboolean inQ
 			int64_t thisEntityNum = (drawSurf->sort >> QSORT_REFENTITYNUM_SHIFT) & REFENTITYNUM_MASK;
 			//trRefEntity_t *thisEnt = &backEnd.refdef.entities[thisEntityNum];
 
+			if (!thisShader)
+			{
+				continue;
+			}
+
 			if (thisShader->surfaceFlags & SURF_NODRAW)
 			{// Skip nodraws completely...
 				continue;
@@ -1607,6 +1613,7 @@ void RB_RenderDrawSurfList(drawSurf_t *drawSurfs, int numDrawSurfs, qboolean inQ
 
 			if (backEnd.renderPass != RENDERPASS_NONE)
 			{// Skip any surfs that are not of this renderPass...
+				qboolean isGrassPatches = qfalse;
 				qboolean isGrass = qfalse;
 				qboolean isGrass2 = qfalse;
 				qboolean isGrass3 = qfalse;
@@ -1614,6 +1621,11 @@ void RB_RenderDrawSurfList(drawSurf_t *drawSurfs, int numDrawSurfs, qboolean inQ
 				qboolean isVines = qfalse;
 				qboolean isGroundFoliage = qfalse;
 				qboolean isMist = qfalse;
+
+				if (RB_ShouldUseGeometryGrassPatches(thisShader->materialType))
+				{
+					isGrassPatches = qtrue;
+				}
 
 				if (thisShader->isGrass || RB_ShouldUseGeometryGrass(thisShader->materialType))
 				{
@@ -1650,7 +1662,11 @@ void RB_RenderDrawSurfList(drawSurf_t *drawSurfs, int numDrawSurfs, qboolean inQ
 					isMist = qtrue;
 				}
 
-				if (isGrass && backEnd.renderPass == RENDERPASS_GRASS)
+				if (isGrassPatches && backEnd.renderPass == RENDERPASS_GRASS_PATCHES)
+				{
+					doDraw = qtrue;
+				}
+				else if (isGrass && backEnd.renderPass == RENDERPASS_GRASS)
 				{
 					doDraw = qtrue;
 				}
@@ -2080,6 +2096,13 @@ void RE_StretchRaw (int x, int y, int w, int h, int cols, int rows, const byte *
 	GLSL_BindProgram(&tr.textureColorShader);
 	
 	GLSL_SetUniformMatrix16(&tr.textureColorShader, UNIFORM_MODELVIEWPROJECTIONMATRIX, glState.modelviewProjection);
+
+	if (tr.textureColorShader.isBindless)
+	{
+		GLSL_SetBindlessTexture(&tr.textureColorShader, UNIFORM_DIFFUSEMAP, &tr.whiteImage, 0);
+		GLSL_BindlessUpdate(&tr.textureColorShader);
+	}
+	
 	GLSL_SetUniformVec4(&tr.textureColorShader, UNIFORM_COLOR, colorWhite);
 
 	RB_InstantQuad2(quadVerts, texCoords);
@@ -3142,9 +3165,10 @@ const void *RB_PostProcess(const void *data)
 		&& !(backEnd.viewParms.flags & VPF_SHADOWPASS)
 		&& SHADOWS_ENABLED
 		&& RB_NightScale() < 1.0 // Can ignore rendering shadows at night...
-		&& r_deferredLighting->integer)
+		&& (r_deferredLighting->integer || r_fastLighting->integer))
 	{
 		FBO_t *oldFbo = glState.currentFBO;
+		shaderProgram_t *sp = &tr.shadowmaskShader;
 
 		DEBUG_StartTimer("Shadow Combine", qtrue);
 
@@ -3184,28 +3208,54 @@ const void *RB_PostProcess(const void *data)
 
 		GL_State(GLS_DEPTHTEST_DISABLE);
 
-		GLSL_BindProgram(&tr.shadowmaskShader);
+		GLSL_BindProgram(sp);
 
-		GL_BindToTMU(tr.linearDepthImageZfar, TB_COLORMAP);
+		qboolean isBindless = sp->isBindless;
 
-		GL_BindToTMU(tr.sunShadowDepthImage[0], TB_SPLATMAP1);
-		GLSL_SetUniformMatrix16(&tr.shadowmaskShader, UNIFORM_SHADOWMVP, backEnd.refdef.sunShadowMvp[0]);
+		if (isBindless)
+		{
+			GLSL_SetBindlessTexture(sp, UNIFORM_SCREENDEPTHMAP, &tr.linearDepthImageZfar, 0);
+			GLSL_SetBindlessTexture(sp, UNIFORM_SHADOWMAP, &tr.sunShadowDepthImage[0], 0);
+			GLSL_SetBindlessTexture(sp, UNIFORM_SHADOWMAP2, &tr.sunShadowDepthImage[1], 0);
+			GLSL_SetBindlessTexture(sp, UNIFORM_SHADOWMAP3, &tr.sunShadowDepthImage[2], 0);
+			GLSL_SetBindlessTexture(sp, UNIFORM_SHADOWMAP4, &tr.sunShadowDepthImage[3], 0);
+			GLSL_SetBindlessTexture(sp, UNIFORM_SHADOWMAP5, &tr.sunShadowDepthImage[4], 0);
+		}
+		else
+		{
+			GLSL_SetUniformInt(sp, UNIFORM_SCREENDEPTHMAP, TB_DIFFUSEMAP);
+			GLSL_SetUniformInt(sp, UNIFORM_SHADOWMAP, TB_SPLATMAP1);
+			GLSL_SetUniformInt(sp, UNIFORM_SHADOWMAP2, TB_SPLATMAP2);
+			GLSL_SetUniformInt(sp, UNIFORM_SHADOWMAP3, TB_SPLATMAP3);
+			GLSL_SetUniformInt(sp, UNIFORM_SHADOWMAP4, TB_STEEPMAP1);
+			GLSL_SetUniformInt(sp, UNIFORM_SHADOWMAP5, TB_STEEPMAP2);
 
-		GL_BindToTMU(tr.sunShadowDepthImage[1], TB_SPLATMAP2);
-		GLSL_SetUniformMatrix16(&tr.shadowmaskShader, UNIFORM_SHADOWMVP2, backEnd.refdef.sunShadowMvp[1]);
+			GL_BindToTMU(tr.linearDepthImageZfar, TB_DIFFUSEMAP);
+			GL_BindToTMU(tr.sunShadowDepthImage[0], TB_SPLATMAP1);
+			GL_BindToTMU(tr.sunShadowDepthImage[1], TB_SPLATMAP2);
+			GL_BindToTMU(tr.sunShadowDepthImage[2], TB_SPLATMAP3);
+			GL_BindToTMU(tr.sunShadowDepthImage[3], TB_STEEPMAP1);
+			GL_BindToTMU(tr.sunShadowDepthImage[4], TB_STEEPMAP2);
+		}
 
-		GL_BindToTMU(tr.sunShadowDepthImage[2], TB_SPLATMAP3);
-		GLSL_SetUniformMatrix16(&tr.shadowmaskShader, UNIFORM_SHADOWMVP3, backEnd.refdef.sunShadowMvp[2]);
+		GLSL_SetUniformMatrix16(sp, UNIFORM_SHADOWMVP, backEnd.refdef.sunShadowMvp[0]);
+		GLSL_SetUniformMatrix16(sp, UNIFORM_SHADOWMVP2, backEnd.refdef.sunShadowMvp[1]);
+		GLSL_SetUniformMatrix16(sp, UNIFORM_SHADOWMVP3, backEnd.refdef.sunShadowMvp[2]);
+		GLSL_SetUniformMatrix16(sp, UNIFORM_SHADOWMVP4, backEnd.refdef.sunShadowMvp[3]);
+		GLSL_SetUniformMatrix16(sp, UNIFORM_SHADOWMVP5, backEnd.refdef.sunShadowMvp[4]);
 
-		GLSL_SetUniformVec3(&tr.shadowmaskShader, UNIFORM_VIEWORIGIN, backEnd.refdef.vieworg);
+		GLSL_SetUniformVec3(sp, UNIFORM_VIEWORIGIN, backEnd.refdef.vieworg);
 
-		extern qboolean SHADOWS_FULL_SOLID;
 		vec4_t vec;
-		VectorSet4(vec, r_shadowSamples->value, r_shadowMapSize->value, SHADOWS_FULL_SOLID, 0.0);
-		GLSL_SetUniformVec4(&tr.shadowmaskShader, UNIFORM_SETTINGS0, vec);
+		VectorSet4(vec, r_shadowMapSize->value, SHADOWS_FULL_SOLID, 0.0, SHADOW_Z_ERROR_OFFSET_NEAR);
+		GLSL_SetUniformVec4(sp, UNIFORM_SETTINGS0, vec);
 
-		VectorSet4(vec, SHADOW_Z_ERROR_OFFSET_NEAR, SHADOW_Z_ERROR_OFFSET_MID, SHADOW_Z_ERROR_OFFSET_FAR, r_testshaderValue1->value);
-		GLSL_SetUniformVec4(&tr.shadowmaskShader, UNIFORM_SETTINGS1, vec);
+		VectorSet4(vec, SHADOW_Z_ERROR_OFFSET_MID, SHADOW_Z_ERROR_OFFSET_MID2, SHADOW_Z_ERROR_OFFSET_MID3, SHADOW_Z_ERROR_OFFSET_FAR);
+		GLSL_SetUniformVec4(sp, UNIFORM_SETTINGS1, vec);
+
+		VectorSet4(vec, tr.refdef.sunShadowCascadeZfar[0], tr.refdef.sunShadowCascadeZfar[1], tr.refdef.sunShadowCascadeZfar[2], tr.refdef.sunShadowCascadeZfar[3]);
+		GLSL_SetUniformVec4(sp, UNIFORM_SETTINGS2, vec);
+		
 
 		{
 			vec4_t viewInfo;
@@ -3223,15 +3273,19 @@ const void *RB_PostProcess(const void *data)
 			VectorScale(backEnd.refdef.viewaxis[1], xmax2, viewBasis[1]);
 			VectorScale(backEnd.refdef.viewaxis[2], ymax2, viewBasis[2]);
 
-			GLSL_SetUniformVec3(&tr.shadowmaskShader, UNIFORM_VIEWFORWARD, viewBasis[0]);
-			GLSL_SetUniformVec3(&tr.shadowmaskShader, UNIFORM_VIEWLEFT, viewBasis[1]);
-			GLSL_SetUniformVec3(&tr.shadowmaskShader, UNIFORM_VIEWUP, viewBasis[2]);
+			GLSL_SetUniformVec3(sp, UNIFORM_VIEWFORWARD, viewBasis[0]);
+			GLSL_SetUniformVec3(sp, UNIFORM_VIEWLEFT, viewBasis[1]);
+			GLSL_SetUniformVec3(sp, UNIFORM_VIEWUP, viewBasis[2]);
 
-			VectorSet4(viewInfo, zmax / zmin, zmax, /*r_hdr->integer ? 32.0 :*/ 24.0, zmin);
+			VectorSet4(viewInfo, zmax / zmin, zmax, 24.0, zmin);
 
-			GLSL_SetUniformVec4(&tr.shadowmaskShader, UNIFORM_VIEWINFO, viewInfo);
+			GLSL_SetUniformVec4(sp, UNIFORM_VIEWINFO, viewInfo);
 		}
 
+		if (isBindless)
+		{
+			GLSL_BindlessUpdate(sp);
+		}
 
 		RB_InstantQuad2(quadVerts, texCoords); //, color, shaderProgram, invTexRes);
 
@@ -3276,7 +3330,8 @@ const void *RB_PostProcess(const void *data)
 		&& !(backEnd.viewParms.flags & VPF_SHADOWPASS)
 		&& !(backEnd.viewParms.flags & VPF_DEPTHSHADOW)
 		&& !backEnd.depthFill
-		&& (r_dynamicGlow->integer || r_anamorphic->integer || r_bloom->integer))
+		&& (r_dynamicGlow->integer || r_anamorphic->integer || r_bloom->integer)
+		&& backEnd.pc.c_glowDraws > 0)
 	{
 		RB_BloomDownscale(tr.glowImage, tr.glowFboScaled[0]);
 		int numPasses = Com_Clampi(1, ARRAY_LEN(tr.glowFboScaled), r_dynamicGlowPasses->integer);
@@ -3387,7 +3442,7 @@ const void *RB_PostProcess(const void *data)
 			}
 		}*/
 
-		if (!SCREEN_BLUR && r_anamorphic->integer)
+		if (!SCREEN_BLUR && r_anamorphic->integer && backEnd.pc.c_glowDraws > 0)
 		{
 			if (!r_lowVram->integer)
 			{
@@ -3397,7 +3452,7 @@ const void *RB_PostProcess(const void *data)
 			}
 		}
 
-		if (!SCREEN_BLUR && r_deferredLighting->integer && !LATE_LIGHTING_ENABLED)
+		if (!SCREEN_BLUR && (r_deferredLighting->integer || r_fastLighting->integer) && !LATE_LIGHTING_ENABLED)
 		{
 			DEBUG_StartTimer("Deferred Lighting", qtrue);
 			RB_DeferredLighting(currentFbo, srcBox, currentOutFbo, dstBox);
@@ -3558,7 +3613,7 @@ const void *RB_PostProcess(const void *data)
 			DEBUG_EndTimer(qtrue);
 		}
 
-		if (r_colorCorrection->integer)
+		if (MAP_COLOR_CORRECTION_ENABLED)
 		{
 			DEBUG_StartTimer("Color Correction", qtrue);
 			RB_ColorCorrection(currentFbo, srcBox, currentOutFbo, dstBox);
@@ -3566,7 +3621,7 @@ const void *RB_PostProcess(const void *data)
 			DEBUG_EndTimer(qtrue);
 		}
 
-		if (!SCREEN_BLUR && r_deferredLighting->integer && LATE_LIGHTING_ENABLED == 1)
+		if (!SCREEN_BLUR && (r_deferredLighting->integer || r_fastLighting->integer) && LATE_LIGHTING_ENABLED == 1)
 		{
 			DEBUG_StartTimer("Deferred Lighting", qtrue);
 			RB_DeferredLighting(currentFbo, srcBox, currentOutFbo, dstBox);
@@ -3582,7 +3637,7 @@ const void *RB_PostProcess(const void *data)
 			DEBUG_EndTimer(qtrue);
 		}
 
-		if (!SCREEN_BLUR && r_deferredLighting->integer && LATE_LIGHTING_ENABLED >= 2)
+		if (!SCREEN_BLUR && (r_deferredLighting->integer || r_fastLighting->integer) && LATE_LIGHTING_ENABLED >= 2)
 		{
 			DEBUG_StartTimer("Deferred Lighting", qtrue);
 			RB_DeferredLighting(currentFbo, srcBox, currentOutFbo, dstBox);
@@ -3653,7 +3708,7 @@ const void *RB_PostProcess(const void *data)
 		}
 		*/
 
-		if (!SCREEN_BLUR && r_dynamicGlow->integer)
+		if (!SCREEN_BLUR && r_dynamicGlow->integer && backEnd.pc.c_glowDraws > 0)
 		{
 			DEBUG_StartTimer("Dynamic Glow Draw", qtrue);
 
@@ -3682,7 +3737,7 @@ const void *RB_PostProcess(const void *data)
 			DEBUG_EndTimer(qtrue);
 		}
 
-		if (!SCREEN_BLUR && (r_bloom->integer == 1 && !r_lowVram->integer))
+		if (!SCREEN_BLUR && (r_bloom->integer == 1 && !r_lowVram->integer) && backEnd.pc.c_glowDraws > 0)
 		{
 			DEBUG_StartTimer("Bloom", qtrue);
 			RB_Bloom(currentFbo, srcBox, currentOutFbo, dstBox);
@@ -3690,7 +3745,7 @@ const void *RB_PostProcess(const void *data)
 			DEBUG_EndTimer(qtrue);
 		}
 
-		if (!SCREEN_BLUR && r_anamorphic->integer)
+		if (!SCREEN_BLUR && r_anamorphic->integer && backEnd.pc.c_glowDraws > 0)
 		{
 			if (!r_lowVram->integer)
 			{
@@ -3716,7 +3771,7 @@ const void *RB_PostProcess(const void *data)
 			}
 		}
 
-		if (!SCREEN_BLUR && r_bloom->integer >= 2)
+		if (!SCREEN_BLUR && r_bloom->integer >= 2 && backEnd.pc.c_glowDraws > 0)
 		{
 			if (!r_lowVram->integer)
 			{
@@ -3727,31 +3782,10 @@ const void *RB_PostProcess(const void *data)
 			}
 		}
 
-		if (!SCREEN_BLUR)
+		if (!SCREEN_BLUR && backEnd.pc.c_transparancyDraws > 0)
 		{
 			DEBUG_StartTimer("Transparancy Post", qtrue);
 			RB_TransparancyPost(currentFbo, srcBox, currentOutFbo, dstBox);
-			RB_SwapFBOs(&currentFbo, &currentOutFbo);
-			DEBUG_EndTimer(qtrue);
-		}
-
-		/*
-		if (!SCREEN_BLUR && r_fxaa->integer)
-		{
-			for (int pass = 0; pass < r_fxaa->integer; pass++)
-			{
-				DEBUG_StartTimer("FXAA", qtrue);
-				RB_FXAA(currentFbo, srcBox, currentOutFbo, dstBox);
-				RB_SwapFBOs(&currentFbo, &currentOutFbo);
-				DEBUG_EndTimer(qtrue);
-			}
-		}
-		*/
-
-		if (!SCREEN_BLUR && r_txaa->integer)
-		{
-			DEBUG_StartTimer("TXAA", qtrue);
-			RB_TXAA(currentFbo, srcBox, currentOutFbo, dstBox);
 			RB_SwapFBOs(&currentFbo, &currentOutFbo);
 			DEBUG_EndTimer(qtrue);
 		}
@@ -3780,57 +3814,39 @@ const void *RB_PostProcess(const void *data)
 			DEBUG_EndTimer(qtrue);
 		}
 
-		extern qboolean menuOpen;
-		//if (menuOpen)
+		if (!SCREEN_BLUR && r_txaa->integer) // meh. disabled. too blurry
 		{
-			FBO_BlitFromTexture(tr.renderGUIImage, srcBox, NULL, currentFbo, dstBox, NULL, NULL, GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA);
-		}
-
-#if 0
-		if (SCREEN_BLUR_MENU)
-		{
-			// Blur some times
-			float	spread = 1.0f;
-			int		numPasses = 8;
-
-			DEBUG_StartTimer("Menu Blur", qtrue);
-			for (int i = 0; i < numPasses; i++)
-			{
-				RB_GaussianBlur(currentFbo, tr.genericFbo2, currentOutFbo, spread);
-				RB_SwapFBOs(&currentFbo, &currentOutFbo);
-				spread += 0.6f * 0.25f;
-			}
+			DEBUG_StartTimer("TXAA", qtrue);
+			//RB_TXAA(currentFbo, srcBox, currentOutFbo, dstBox);
+			RB_TXAA(currentFbo, srcBox, srcFbo, dstBox);
+			RB_SwapFBOs(&currentFbo, &currentOutFbo);
 			DEBUG_EndTimer(qtrue);
 		}
-#endif
+		else if (!SCREEN_BLUR && (r_fxaa->integer /*|| r_txaa->integer*/))
+		{
+			DEBUG_StartTimer("FXAA", qtrue);
+			//RB_FXAA(currentFbo, srcBox, currentOutFbo, dstBox);
+			RB_FXAA(currentFbo, srcBox, srcFbo, dstBox);
+			RB_SwapFBOs(&currentFbo, &currentOutFbo);
+			DEBUG_EndTimer(qtrue);
+		}
+		else
+		{
+			DEBUG_StartTimer("Final Blit", qtrue);
+			FBO_FastBlit(currentFbo, NULL, srcFbo, NULL, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+			DEBUG_EndTimer(qtrue);
+		}
+
 
 		ALLOW_NULL_FBO_BIND = qtrue;
 
-		DEBUG_StartTimer("Final Blit", qtrue);
-		FBO_FastBlit(currentFbo, NULL, srcFbo, NULL, GL_COLOR_BUFFER_BIT, GL_NEAREST);
-		DEBUG_EndTimer(qtrue);
-
-		DEBUG_StartTimer("OcclusionCulling", qtrue);
-		RB_OcclusionCulling();
-		DEBUG_EndTimer(qtrue);
-
-		//FBO_Bind(srcFbo);
-
-		//
-		// End UQ1 Added...
-		//
-
-		extern int			MAP_TONEMAP_METHOD;
-		extern qboolean		MAP_TONEMAP_AUTOEXPOSURE;
-		//extern float		MAP_TONEMAP_SPHERICAL_STRENGTH;
 
 		DEBUG_StartTimer("HDR", qtrue);
-		if (r_hdr->integer && MAP_TONEMAP_METHOD > 0 && (r_toneMap->integer || r_forceToneMap->integer))
+		if (r_hdr->integer && MAP_TONEMAP_METHOD > 0)
 		{
-			autoExposure = (qboolean)((r_autoExposure->integer && MAP_TONEMAP_AUTOEXPOSURE) || r_forceAutoExposure->integer);
-			RB_ToneMap(srcFbo, srcBox, NULL, dstBox, autoExposure);
+			RB_ToneMap(srcFbo, srcBox, NULL, dstBox, MAP_TONEMAP_AUTOEXPOSURE);
 		}
-		else if (r_cameraExposure->value == 0.0f)
+		else if (MAP_TONEMAP_METHOD <= 0 || MAP_TONEMAP_CAMERAEXPOSURE == 0.0)
 		{
 			FBO_FastBlit(srcFbo, srcBox, NULL, dstBox, GL_COLOR_BUFFER_BIT, GL_NEAREST);
 		}
@@ -3840,7 +3856,7 @@ const void *RB_PostProcess(const void *data)
 
 			color[0] =
 			color[1] =
-			color[2] = pow(2, r_cameraExposure->value); //exp2(r_cameraExposure->value);
+			color[2] = pow(2, MAP_TONEMAP_CAMERAEXPOSURE); //exp2(MAP_TONEMAP_CAMERAEXPOSURE);
 			color[3] = 1.0f;
 
 			FBO_Blit(srcFbo, srcBox, NULL, NULL, dstBox, NULL, color, 0);
@@ -3864,24 +3880,36 @@ const void *RB_PostProcess(const void *data)
 	}
 #endif //___WARZONE_AWESOMIUM___
 
-	if (0 && r_sunlightMode->integer && SHADOWS_ENABLED)
-	{
-		vec4i_t dstBox;
-		VectorSet4(dstBox, 0, 0, 128, 128);
-		FBO_BlitFromTexture(tr.sunShadowDepthImage[0], NULL, NULL, NULL, dstBox, NULL, NULL, 0);
-		VectorSet4(dstBox, 128, 0, 128, 128);
-		FBO_BlitFromTexture(tr.sunShadowDepthImage[1], NULL, NULL, NULL, dstBox, NULL, NULL, 0);
-		VectorSet4(dstBox, 256, 0, 128, 128);
-		FBO_BlitFromTexture(tr.sunShadowDepthImage[2], NULL, NULL, NULL, dstBox, NULL, NULL, 0);
-	}
-
 	if (0)
 	{
 		vec4i_t dstBox;
-		VectorSet4(dstBox, 256, glConfig.vidHeight - 256, 256, 256);
+
+		if (r_sunlightMode->integer && SHADOWS_ENABLED)
+		{
+			VectorSet4(dstBox, 0, 0, 128, 128);
+			FBO_BlitFromTexture(tr.sunShadowDepthImage[0], NULL, NULL, NULL, dstBox, NULL, NULL, 0);
+			VectorSet4(dstBox, 128, 0, 128, 128);
+			FBO_BlitFromTexture(tr.sunShadowDepthImage[1], NULL, NULL, NULL, dstBox, NULL, NULL, 0);
+			VectorSet4(dstBox, 256, 0, 128, 128);
+			FBO_BlitFromTexture(tr.sunShadowDepthImage[2], NULL, NULL, NULL, dstBox, NULL, NULL, 0);
+			VectorSet4(dstBox, 384, 0, 128, 128);
+			FBO_BlitFromTexture(tr.screenShadowImage, NULL, NULL, NULL, dstBox, NULL, NULL, 0);
+			VectorSet4(dstBox, 512, 0, 128, 128);
+			FBO_BlitFromTexture(tr.screenShadowBlurImage, NULL, NULL, NULL, dstBox, NULL, NULL, 0);
+		}
+
+		VectorSet4(dstBox, 0, 128, 128, 128);
 		FBO_BlitFromTexture(tr.renderDepthImage, NULL, NULL, NULL, dstBox, NULL, NULL, 0);
-		VectorSet4(dstBox, 512, glConfig.vidHeight - 256, 256, 256);
-		FBO_BlitFromTexture(tr.screenShadowImage, NULL, NULL, NULL, dstBox, NULL, NULL, 0);
+		VectorSet4(dstBox, 128, 128, 128, 128);
+		FBO_BlitFromTexture(tr.linearDepthImage512, NULL, NULL, NULL, dstBox, NULL, NULL, 0);
+		VectorSet4(dstBox, 256, 128, 128, 128);
+		FBO_BlitFromTexture(tr.linearDepthImage2048, NULL, NULL, NULL, dstBox, NULL, NULL, 0);
+		VectorSet4(dstBox, 384, 128, 128, 128);
+		FBO_BlitFromTexture(tr.linearDepthImage4096, NULL, NULL, NULL, dstBox, NULL, NULL, 0);
+		VectorSet4(dstBox, 512, 128, 128, 128);
+		FBO_BlitFromTexture(tr.linearDepthImage8192, NULL, NULL, NULL, dstBox, NULL, NULL, 0);
+		VectorSet4(dstBox, 640, 128, 128, 128);
+		FBO_BlitFromTexture(tr.linearDepthImageZfar, NULL, NULL, NULL, dstBox, NULL, NULL, 0);
 	}
 
 	if (0)
@@ -3970,6 +3998,16 @@ const void *RB_PostProcess(const void *data)
 		FBO_BlitFromTexture(tr.waterReflectionRenderImage, NULL, NULL, NULL, dstBox, NULL, NULL, 0);
 	}
 #endif
+
+	DEBUG_StartTimer("OcclusionCulling", qtrue);
+	RB_OcclusionCulling();
+	DEBUG_EndTimer(qtrue);
+
+
+	{// Add UI to final screen image...
+		FBO_BlitFromTexture(tr.renderGUIImage, srcBox, NULL, NULL, dstBox, NULL, NULL, GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA);
+	}
+
 
 	if (r_superSampleMultiplier->value > 1.0)
 	{

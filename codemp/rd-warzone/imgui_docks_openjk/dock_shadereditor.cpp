@@ -39,12 +39,12 @@ int GLSL_MyCompileGPUShader(GLuint program, GLuint *prevShader, const GLchar *bu
 
 void DockShaders::recompileShader() {
 		int newProgram = qglCreateProgram();
-		int retVert = GLSL_MyCompileGPUShader(newProgram, &shader->vertexShader, shader->vertexText, strlen(shader->vertexText), GL_VERTEX_SHADER);
+		int retVert = GLSL_MyCompileGPUShader(newProgram, &shader->vertexShader, shader->vertexTextChar, strlen(shader->vertexTextChar), GL_VERTEX_SHADER);
 		if (retVert == 0) {
 			imgui_log("Couldn't compile Vertex shader\n");
 			return;
 		}
-		int retFrag = GLSL_MyCompileGPUShader(newProgram, &shader->fragmentShader, shader->fragText, strlen(shader->fragText), GL_FRAGMENT_SHADER);
+		int retFrag = GLSL_MyCompileGPUShader(newProgram, &shader->fragmentShader, shader->fragTextChar, strlen(shader->fragTextChar), GL_FRAGMENT_SHADER);
 		if (retFrag == 0) {
 			imgui_log("Couldn't compile Fragment shader\n");
 			return;
@@ -66,14 +66,19 @@ void DockShaders::recompileShader() {
 //		imgui_log("ret compile shader:  %d\n", ret);
 //}
 
+
+#define MAX_SHADER_LIST_ITEMS 1024
+char shader_items[MAX_SHADER_LIST_ITEMS][256/*512*/];
+char *shader_items_[MAX_SHADER_LIST_ITEMS]; // just a pointer list
+int shader_items_next_update = 0;
+
 void DockShaders::imgui() {
 
 
-	#define NUM_SHADERS 1024
 	int num_shaders = shaders_next_id;
 	//shaderProgram_t *shaders[NUM_SHADERS];
-	char items[NUM_SHADERS][512];
-	char *items_[NUM_SHADERS]; // just a pointer list
+	//char shader_items[NUM_SHADERS][512];
+	//char *shader_items_[NUM_SHADERS]; // just a pointer list
 
 	
 	//for (int i=0; i<32; i++)
@@ -82,18 +87,25 @@ void DockShaders::imgui() {
 	//	shaders[i + 32] = tr.lightallShader + i;
 	//shaders[32+64] = &tr.textureColorShader;
 	
+	if (shader_items_next_update <= backEnd.refdef.time)
+	{// UQ1: Slowed down this updating so we can actually use the combo box to select items :)
+		memset(&shader_items, 0, sizeof(shader_items));
+		memset(&shader_items_, 0, sizeof(shader_items_));
 
-	for (int i=0; i<num_shaders; i++) {
-		//shaderProgram_t *shader = tr.genericShader + i;
-		shaderProgram_t *shader = shaders[i];
-		if (shader == NULL)
-			continue;
-		sprintf(items[i], "shaders[%d] %s prog=%d vert=%d frag=%d usagecount=%d", i, shader->name, shader->program, shader->vertexShader, shader->fragmentShader, shader->usageCount);
-		items_[i] = items[i];
+		for (int i = 0; i < num_shaders; i++) {
+			//shaderProgram_t *shader = tr.genericShader + i;
+			shaderProgram_t *shader = shaders[i];
+			if (shader == NULL)
+				continue;
+			sprintf(shader_items[i], "shaders[%d] %s prog=%d vert=%d frag=%d usagecount=%d", i, shader->name.c_str(), shader->program, shader->vertexShader, shader->fragmentShader, shader->usageCount);
+			shader_items_[i] = shader_items[i];
+		}
+
+		shader_items_next_update = backEnd.refdef.time + 1000;
 	}
 
-	ImGui::Combo("shader", &currentItem, (const char **)items_, num_shaders);
-	ImGui::DragInt("currentItem", &currentItem);
+	ImGui::Combo("shader", &currentItem, (const char **)shader_items_, num_shaders, MAX_SHADER_LIST_ITEMS/*64*/);
+	//ImGui::DragInt("currentItem", &currentItem); // UQ1: Not needed any more. can select from the list directly.
 	
 
 	if (currentItem <= 0)
@@ -120,7 +132,9 @@ void DockShaders::imgui() {
 	//ImVec2 size;
 	//size.x = ImGui::GetWindowSize();
 	ImGui::SetCursorPos(vertPosStart);
-	ImGui::InputTextMultiline("##vert", shader->vertexText, sizeof(shader->vertexText), vertPosSize, ImGuiInputTextFlags_AllowTabInput);
+
+	// UQ1: Hmm imgui doesn't support std::string fields?
+	ImGui::InputTextMultiline("##vert", shader->vertexTextChar, sizeof(shader->vertexTextChar), vertPosSize, ImGuiInputTextFlags_AllowTabInput);
 
 	if (ImGui::IsItemActive() && ImGui::GetIO().KeyCtrl && IsKeyPressedMap(ImGuiKey_Enter, 0)) {
 		recompileShader();
@@ -131,10 +145,11 @@ void DockShaders::imgui() {
 	//ImVec2 size;
 	//size.x = ImGui::GetWindowSize();
 	ImGui::SetCursorPos(fragPosStart);
-	ImGui::InputTextMultiline("##frag", shader->fragText, sizeof(shader->fragText), fragPosSize, ImGuiInputTextFlags_AllowTabInput);
+	
+	// UQ1: Hmm imgui doesn't support std::string fields?
+	ImGui::InputTextMultiline("##frag", shader->fragTextChar, sizeof(shader->fragTextChar), fragPosSize, ImGuiInputTextFlags_AllowTabInput);
 	
 	if (ImGui::IsItemActive() && ImGui::GetIO().KeyCtrl && IsKeyPressedMap(ImGuiKey_Enter, 0)) {
 		recompileShader();
 	}
-
 }
